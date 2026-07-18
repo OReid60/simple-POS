@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Inventory</title>
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body class="settings-page">
+    <main class="settings-window management-window">
+      <header class="settings-window-header">
+        <p class="eyebrow">Administrator</p>
+        <h1>Inventory</h1>
+      </header>
+
+      <form id="managementForm" class="settings-form">
+        <section class="settings-section">
+          <div class="section-title-row">
+            <h2>Categories</h2>
+          </div>
+          <div class="category-manager">
+            <input id="newCategoryName" type="text" placeholder="New category name">
+            <button class="secondary-button" id="addCategory" type="button">Add Category</button>
+          </div>
+          <div class="managed-category-list" id="categoryList"></div>
+        </section>
+
+        <section class="settings-section">
+          <div class="section-title-row">
+            <h2>Inventory</h2>
+            <div class="section-title-actions">
+              <button class="secondary-button" id="inventoryImportExport" type="button">Import/Export</button>
+              <button class="secondary-button" id="addInventoryItem" type="button">Add Item</button>
+            </div>
+          </div>
+          <div class="inventory-list" id="inventoryList"></div>
+        </section>
+
+        <section class="settings-section">
+          <div class="section-title-row">
+            <h2>Purchasing / Company Bills</h2>
+            <button class="secondary-button" id="addPurchaseBill" type="button">Add Bill</button>
+          </div>
+          <div class="purchase-list" id="purchaseList"></div>
+        </section>
+
+        <div class="settings-actions">
+          <button class="secondary-button" id="reloadInventory" type="button">Reload</button>
+          <button class="checkout-button" type="submit">Save Inventory & Purchasing</button>
+        </div>
+        <p class="settings-note" id="saveStatus" role="status"></p>
+      </form>
+    </main>
+
+    <dialog id="importExportDialog" class="import-export-dialog">
+      <div class="discount-modal">
+        <div class="receipt-header">
+          <div>
+            <p class="eyebrow">Inventory</p>
+            <h2>Import / Export</h2>
+          </div>
+        </div>
+        <div class="discount-body">
+          <p class="settings-note">Create an Excel template, fill in item rows, then import it. New item codes generate after import completes.</p>
+          <div class="import-export-actions">
+            <button class="secondary-button" id="inventoryTemplate" type="button">Template</button>
+            <button class="checkout-button" id="inventoryImport" type="button">Import</button>
+          </div>
+          <p class="settings-note" id="importExportStatus" role="status"></p>
+        </div>
+        <div class="receipt-actions">
+          <button class="secondary-button" id="closeImportExport" type="button">Close</button>
+        </div>
+      </div>
+    </dialog>
+
+    <script src="management.js"></script>
+  </body>
+</html>

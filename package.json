@@ -1,0 +1,66 @@
+{
+  "name": "simple-pos",
+  "version": "1.1.28",
+  "description": "A simple Windows point of sale application.",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "postinstall": "electron-builder install-app-deps",
+    "build:win": "set CSC_IDENTITY_AUTO_DISCOVERY=false&& electron-builder --win nsis",
+    "pack:win": "set CSC_IDENTITY_AUTO_DISCOVERY=false&& electron-builder --win dir"
+  },
+  "build": {
+    "appId": "com.simplepos.desktop",
+    "productName": "POS",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "build/icon.ico",
+      "build/icon.png",
+      "app.js",
+      "audit.html",
+      "audit.js",
+      "database.js",
+      "index.html",
+      "main.js",
+      "management.html",
+      "management.js",
+      "preload.js",
+      "reporting.html",
+      "reporting.js",
+      "settings.html",
+      "settings.js",
+      "styles.css"
+    ],
+    "extraResources": [
+      {
+        "from": "build/icon.ico",
+        "to": "build/icon.ico"
+      }
+    ],
+    "win": {
+      "icon": "build/icon.ico",
+      "signAndEditExecutable": false,
+      "target": [
+        "nsis"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "license": "build/license.txt",
+      "shortcutName": "POS"
+    }
+  },
+  "devDependencies": {
+    "electron": "^31.7.7",
+    "electron-builder": "^24.13.3"
+  },
+  "dependencies": {
+    "better-sqlite3": "^12.11.1",
+    "extract-zip": "^2.0.1"
+  }
+}

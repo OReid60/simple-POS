@@ -1,0 +1,27 @@
+POS APPLICATION LICENSE AGREEMENT
+
+Please read this agreement before installing or using this POS application.
+
+Ownership and Rights
+All rights, title, and interest in this software belong to the programmer and owner of this POS application. The application, design, source code, compiled files, installer, database structure, workflows, reports, receipt logic, and related materials are protected as proprietary work. All rights are reserved.
+
+License to Use
+The user is granted permission to install and use this POS application only for authorized business operations. This permission does not transfer ownership of the software, source code, design, installer, or any related materials.
+
+Restrictions
+The user may not copy, resell, redistribute, reverse engineer, decompile, modify, rebrand, sublicense, or claim ownership of this software without written permission from the programmer and owner.
+
+Business Data
+Business data entered into the application, including inventory, categories, purchasing records, receipts, invoices, reports, and settings, belongs to the business using the application. The software owner remains the owner of the application itself.
+
+WhatsApp Sharing Requirement
+The receipt and report sharing features require WhatsApp to be installed and configured on the Windows PC. If WhatsApp is not installed, signed in, or available to Windows sharing, the WhatsApp share option may not work.
+
+Printer Requirement
+Receipt printing requires a compatible printer installed and configured in Windows. Printer behavior depends on Windows printer drivers and the selected POS printer settings.
+
+No Warranty
+This software is provided as-is. The programmer and owner are not responsible for lost sales, lost data, device issues, printer issues, WhatsApp issues, Windows issues, or business losses caused by misuse, device failure, or unsupported configuration.
+
+Acceptance
+By installing or using this POS application, the user agrees to this license agreement.

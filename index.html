@@ -1,0 +1,233 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Simple POS</title>
+    <link rel="icon" href="build/icon.png">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <section class="setup-screen is-hidden" id="setupScreen" aria-label="New business setup">
+      <div class="setup-panel">
+        <div class="setup-step" id="businessSetupStep">
+          <p class="eyebrow">First Setup</p>
+          <h1>Business Information</h1>
+          <p class="login-copy">Enter the business details that should appear on receipts and reports.</p>
+          <form id="businessSetupForm">
+            <label>
+              Business Name
+              <input id="setupBusinessName" type="text" autocomplete="organization" required>
+            </label>
+            <label>
+              Address
+              <input id="setupBusinessAddress" type="text" autocomplete="street-address" required>
+            </label>
+            <label>
+              Contact Number
+              <input id="setupContactNumber" type="tel" autocomplete="tel" required>
+            </label>
+            <p class="form-error" id="setupBusinessError" role="alert"></p>
+            <button class="checkout-button" type="submit">Continue</button>
+          </form>
+        </div>
+
+        <div class="setup-step is-hidden" id="adminSetupStep">
+          <p class="eyebrow">Owner Use ONLY</p>
+          <h1>Admin User Setup</h1>
+          <p class="owner-warning">This administrator account is for Owner Use ONLY. Keep this username and password private.</p>
+          <form id="adminSetupForm">
+            <label>
+              Owner Name
+              <input id="setupAdminName" type="text" autocomplete="name" required>
+            </label>
+            <label>
+              Admin Username
+              <input id="setupAdminUsername" type="text" autocomplete="username" required>
+            </label>
+            <label>
+              Admin Password
+              <input id="setupAdminPassword" type="password" autocomplete="new-password" required>
+            </label>
+            <label>
+              Confirm Password
+              <input id="setupAdminConfirmPassword" type="password" autocomplete="new-password" required>
+            </label>
+            <p class="form-error" id="setupAdminError" role="alert"></p>
+            <div class="setup-actions">
+              <button class="secondary-button" id="backToBusinessSetup" type="button">Back</button>
+              <button class="checkout-button" type="submit">Finish Setup</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </section>
+
+    <section class="login-screen" id="loginScreen" aria-label="Staff login">
+      <form class="login-panel" id="loginForm">
+        <h1 id="loginBusinessName"></h1>
+        <p class="login-copy">Sign in with a staff or administrator account.</p>
+        <label>
+          Username
+          <input id="username" type="text" autocomplete="username" required>
+        </label>
+        <label>
+          Password
+          <input id="password" type="password" autocomplete="current-password" required>
+        </label>
+        <p class="form-error" id="loginError" role="alert"></p>
+        <button class="checkout-button" type="submit">Sign In</button>
+        <div class="demo-users is-hidden" id="loginUserHints" aria-hidden="true"></div>
+      </form>
+    </section>
+
+    <div class="app-shell is-hidden" id="appShell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Register 01</p>
+          <div class="brand-lockup">
+            <img id="businessLogo" alt="Business logo">
+            <h1 id="businessName"></h1>
+          </div>
+        </div>
+        <div class="top-actions">
+          <div class="staff-user-row">
+            <div class="staff-quick-actions">
+              <button class="secondary-button is-hidden" id="heldReceiptsButton" type="button">Held Receipts</button>
+              <button class="secondary-button is-hidden" id="staffReportButton" type="button">Report</button>
+            </div>
+            <button class="user-dock" id="switchUserButton" type="button" title="Switch user">
+              <div class="shift-panel">
+                <span id="currentRole">Cashier</span>
+                <strong id="currentUser">Not signed in</strong>
+              </div>
+            </button>
+          </div>
+          <p class="switch-user-caption">Click Card above to Log out or Switch User.</p>
+          <div class="admin-actions admin-only">
+            <button class="secondary-button" id="settingsButton" type="button">Settings</button>
+            <button class="secondary-button" id="managementButton" type="button">Inventory</button>
+            <button class="secondary-button" id="reportingButton" type="button">Dashboard</button>
+          </div>
+          <button class="secondary-button is-hidden" id="logoutButton" type="button">Logout</button>
+        </div>
+      </header>
+
+      <main class="pos-layout">
+        <section class="catalog-panel" aria-label="Product catalog">
+          <div class="panel-heading">
+            <div>
+              <h2>Catalog</h2>
+              <p>Tap items to add them to the current sale.</p>
+            </div>
+            <label class="search-box">
+              <span>Search</span>
+              <input id="productSearch" type="search" placeholder="Hair, nails, perfume, makeup..." autocomplete="off">
+            </label>
+          </div>
+
+          <div class="category-tabs" id="categoryTabs" aria-label="Product categories"></div>
+          <div class="product-grid" id="productGrid"></div>
+        </section>
+
+        <aside class="cart-panel" aria-label="Current sale">
+          <div class="cart-header">
+          <div>
+            <p class="eyebrow">Current Sale</p>
+            <h2>Order <span id="orderNumber"></span></h2>
+          </div>
+          </div>
+
+          <div class="cart-items" id="cartItems"></div>
+
+          <div class="checkout">
+            <div class="summary-line">
+              <span>Subtotal</span>
+              <strong id="subtotal">$0.00</strong>
+            </div>
+            <div class="summary-line">
+              <span>Tax <small id="taxRateLabel"></small></span>
+              <strong id="tax">$0.00</strong>
+            </div>
+            <div class="summary-line discount-line is-hidden" id="discountLine">
+              <span id="discountLabel">Discount</span>
+              <strong id="discountAmount">$0.00</strong>
+            </div>
+            <div class="summary-line total">
+              <span>Total</span>
+              <strong id="total">$0.00</strong>
+            </div>
+
+            <div class="payment-controls">
+              <label>
+                Payment
+                <select id="paymentMethod">
+                  <option>Cash</option>
+                  <option>Debit Card</option>
+                  <option>Credit Card</option>
+                </select>
+              </label>
+              <label>
+                Amount tendered
+                <input id="tendered" type="text" inputmode="decimal" placeholder="0.00">
+              </label>
+            </div>
+
+            <div class="change-due">
+              <span>Change due</span>
+              <strong id="changeDue">$0.00</strong>
+            </div>
+
+            <div class="checkout-actions">
+              <button class="secondary-button" id="discountSale" type="button">Discount</button>
+              <button class="checkout-button" id="completeSale" type="button">Complete Sale</button>
+            </div>
+            <p class="hold-warning is-hidden" id="holdWarning" role="status"></p>
+          </div>
+        </aside>
+      </main>
+    </div>
+
+    <dialog id="receiptDialog">
+      <form method="dialog" class="receipt">
+        <div class="receipt-header">
+          <div>
+            <p class="eyebrow">Receipt</p>
+            <h2>Sale Complete</h2>
+          </div>
+        </div>
+        <div id="receiptBody"></div>
+        <div class="receipt-actions">
+          <button class="secondary-button hold-action" id="holdSale" type="button">Hold</button>
+          <button class="secondary-button" id="printReceipt" type="button">Print Receipt</button>
+          <button class="secondary-button" id="shareReceipt" type="button">WhatsApp</button>
+          <button class="checkout-button" id="startNextSale" type="button">Start Next Sale</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="discountDialog" class="discount-dialog">
+      <div class="discount-modal">
+        <div class="receipt-header">
+          <div>
+            <p class="eyebrow">Discount</p>
+            <h2>Apply Discount</h2>
+          </div>
+        </div>
+        <div class="discount-body">
+          <label>
+            Discount percent
+            <input id="discountInput" type="text" inputmode="decimal" maxlength="6" placeholder="0">
+          </label>
+          <p class="settings-note" id="discountPreview" role="status">Enter a discount percent.</p>
+        </div>
+        <div class="receipt-actions">
+          <button class="secondary-button" id="cancelDiscount" type="button">Cancel</button>
+          <button class="checkout-button" id="applyDiscount" type="button">Apply Discount</button>
+        </div>
+      </div>
+    </dialog>
+
+    <script src="app.js"></script>
+  </body>
+</html>

@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Audit Log</title>
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body class="settings-page">
+    <main class="settings-window audit-window">
+      <header class="settings-window-header">
+        <p class="eyebrow">Administrator</p>
+        <h1>Audit Log</h1>
+      </header>
+
+      <section class="settings-section">
+        <div class="section-title-row">
+          <h2>User Activity</h2>
+          <button class="secondary-button" id="refreshAuditLog" type="button">Refresh</button>
+        </div>
+        <div class="audit-list" id="auditList"></div>
+      </section>
+    </main>
+
+    <script src="audit.js"></script>
+  </body>
+</html>

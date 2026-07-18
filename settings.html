@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>POS Settings</title>
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body class="settings-page">
+    <main class="settings-window app-settings-window">
+      <header class="settings-window-header">
+        <p class="eyebrow">Administrator</p>
+        <h1>Settings</h1>
+      </header>
+
+      <form id="settingsForm" class="settings-form">
+        <section class="settings-section settings-section-business">
+          <h2>Business</h2>
+          <label>
+            Business name
+            <input id="businessNameInput" type="text" placeholder="Business name" required>
+          </label>
+          <label>
+            Business address
+            <input id="businessAddressInput" type="text" placeholder="123 Beauty Ave">
+          </label>
+          <div class="logo-picker-group">
+            <span>Business logo</span>
+            <label class="logo-upload-tile" for="businessLogoInput">
+              <input id="businessLogoInput" type="file" accept="image/*">
+              <img id="businessLogoPreview" alt="Business logo preview">
+              <span id="businessLogoPlaceholder">Select Logo</span>
+            </label>
+            <button class="secondary-button" id="clearBusinessLogo" type="button">Clear Logo</button>
+          </div>
+          <label>
+            WhatsApp number
+            <input id="whatsappNumber" type="tel" placeholder="15551234567">
+          </label>
+          <label class="checkbox-row">
+            <input id="holdRetentionEnabled" type="checkbox">
+            Enable held bill save timer
+          </label>
+          <label>
+            Held bill save time (hours)
+            <input id="holdRetentionHours" type="number" min="1" step="1" placeholder="24">
+          </label>
+          <label class="checkbox-row">
+            <input id="newItemBadgeTimerEnabled" type="checkbox">
+            Enable New item badge timer
+          </label>
+          <label>
+            New item badge time (hours)
+            <input id="newItemBadgeHours" type="number" min="1" step="1" placeholder="24">
+          </label>
+        </section>
+
+        <section class="settings-section settings-section-theme">
+          <h2>Theme</h2>
+          <label>
+            Window gradient
+            <select id="themeGradient">
+              <option value="lotus">Lotus Glow</option>
+              <option value="emerald">Emerald Blush</option>
+              <option value="rose">Rose Gold</option>
+              <option value="blue">Blue Spa</option>
+              <option value="gold">Soft Gold</option>
+              <option value="neutral">Clean Neutral</option>
+            </select>
+          </label>
+        </section>
+
+        <section class="settings-section settings-section-payments">
+          <div class="section-title-row">
+            <h2>Payment Methods</h2>
+            <button class="secondary-button" id="addPaymentMethod" type="button">Add Method</button>
+          </div>
+          <label>
+            Sales tax rate (%)
+            <input id="taxRate" type="number" min="0" step="0.01" placeholder="8.25">
+          </label>
+          <div class="payment-method-list" id="paymentMethodList"></div>
+        </section>
+
+        <section class="settings-section settings-section-users">
+          <div class="section-title-row">
+            <h2>User Accounts</h2>
+            <div class="section-title-actions">
+              <button class="secondary-button" id="openAuditLog" type="button">Audit Log</button>
+              <button class="secondary-button" id="addUser" type="button">Add User</button>
+            </div>
+          </div>
+          <p class="settings-note settings-note-success">If a password is forgotten, hold Ctrl+0 on the login screen to briefly show the configured usernames and passwords.</p>
+          <div class="user-list" id="userList"></div>
+        </section>
+
+        <section class="settings-section settings-section-roles">
+          <h2>Staff Access</h2>
+          <label class="checkbox-row">
+            <input id="staffCanAccessSettings" type="checkbox">
+            Access Settings
+          </label>
+          <label class="checkbox-row">
+            <input id="staffCanAccessManagement" type="checkbox">
+            Access Inventory
+          </label>
+          <label class="checkbox-row">
+            <input id="staffCanAccessReporting" type="checkbox">
+            Access Reporting
+          </label>
+          <label class="checkbox-row">
+            <input id="staffCanRestoreHolds" type="checkbox">
+            Allow staff to restore held receipts without administrator password
+          </label>
+        </section>
+
+        <section class="settings-section settings-section-receipt">
+          <h2>Receipt Printing</h2>
+          <label class="checkbox-row">
+            <input id="receiptPrintingEnabled" type="checkbox">
+            Enable receipt printing
+          </label>
+          <label>
+            Receipt printer
+            <select id="printerSelect"></select>
+          </label>
+          <label>
+            Paper size
+            <select id="paperSize">
+              <option value="letter">Letter paper</option>
+              <option value="receipt-80">80mm receipt printer</option>
+              <option value="receipt-58">58mm receipt printer</option>
+            </select>
+          </label>
+          <label class="checkbox-row">
+            <input id="silentPrint" type="checkbox">
+            Print without showing the system print dialog
+          </label>
+          <p class="settings-note" id="printerStatus"></p>
+        </section>
+
+        <div class="settings-actions settings-section-actions">
+          <button class="secondary-button" id="refreshPrinters" type="button">Refresh Printers</button>
+          <button class="checkout-button" type="submit">Save Settings</button>
+        </div>
+        <p class="settings-note" id="saveStatus" role="status"></p>
+      </form>
+    </main>
+
+    <script src="settings.js"></script>
+  </body>
+</html>

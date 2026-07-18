@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Reporting</title>
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body class="settings-page">
+    <main class="settings-window reporting-window">
+      <header class="settings-window-header">
+        <p class="eyebrow" id="reportingEyebrow">Administrator</p>
+        <h1 id="reportingTitle">Reporting</h1>
+      </header>
+
+      <section class="settings-section">
+        <div class="section-title-row">
+          <h2 id="reportingSectionTitle">Invoices / Receipts</h2>
+          <div class="section-title-actions">
+            <button
+              class="secondary-button"
+              id="endOfDayButton"
+              type="button"
+              title="Generate a short end-of-day POS report summarizing total sales, payment methods, refunds, voids, cash differences, system issues, and any actions needed for the next shift."
+            >Generate End-of-Day Report</button>
+            <button class="secondary-button" id="refreshReports" type="button">Refresh</button>
+          </div>
+        </div>
+        <div class="report-summary" id="reportSummary"></div>
+        <div class="reporting-layout">
+          <div class="invoice-list" id="invoiceList"></div>
+          <div class="invoice-detail" id="invoiceDetail"></div>
+        </div>
+      </section>
+    </main>
+
+    <dialog id="endOfDaySummaryDialog">
+      <form method="dialog" class="receipt">
+        <div class="receipt-header">
+          <div>
+            <p class="eyebrow">Preview</p>
+            <h2>End-of-Day Summary</h2>
+          </div>
+        </div>
+        <div id="endOfDaySummaryBody"></div>
+        <button class="saved-location-link is-hidden" id="endOfDaySavedLocation" type="button"></button>
+        <div class="receipt-actions">
+          <button class="secondary-button" value="close" type="submit">Cancel</button>
+          <button class="checkout-button" id="confirmSendEndOfDayWhatsapp" value="default" type="button">Save & Send to WhatsApp</button>
+        </div>
+      </form>
+    </dialog>
+
+    <script src="reporting.js"></script>
+  </body>
+</html>

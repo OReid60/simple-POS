@@ -1,0 +1,177 @@
+# Simple POS
+
+Simple POS is a Windows-ready Electron point of sale app for cosmetic retail: hair, nails, perfume, makeup, and skincare items. It includes staff/admin login, cart checkout, receipt preview, a separate admin settings window, printer setup, WhatsApp receipt sharing, editable business name, and inventory item editing.
+
+## Test Locally
+
+Install dependencies once:
+
+```powershell
+npm install
+```
+
+Run the desktop app:
+
+```powershell
+npm start
+```
+
+Default users:
+
+| Role | Username | Password |
+| --- | --- | --- |
+| Administrator | `admin` | `admin123` |
+| Staff | `staff` | `staff123` |
+
+## Build Windows Installer
+
+Create a Windows `.exe` installer:
+
+```powershell
+npm run build:win
+```
+
+The installer will be created in the `dist` folder.
+
+## Settings
+
+Log in as `admin`, open Settings, and manage:
+
+- Business name shown on the register and receipts
+- WhatsApp number used for receipt sharing
+- Receipt printer
+- Letter, 80mm receipt, or 58mm receipt paper
+- Silent printing
+- Inventory item code, name, category, and price
+- Business sales tax rate in Settings
+- Per-item taxable on/off control
+- Category list creation and inventory management
+- Reporting window with saved receipts/invoices
+- User account setup in Settings
+- Mixed horizontal/vertical Settings layout for business, printer, and user account setup
+- Receipt printing toggle that controls whether Print Receipt appears after sale completion
+- Receipt statuses in Reporting with orange Hold and green Complete states
+- Hold bill restore/delete actions and automatic completed receipt cleanup after 24 hours
+- Business logo upload in Settings
+- Square business logo picker and hidden Current Sale clear button
+- Configurable payment methods in Settings
+- End-of-day Reporting summary by cashier and payment method
+- End of Day button in Reporting to focus the receipt list on today's completed sales
+- Sequential saved order numbers that remain consistent after closing and reopening the POS
+- Generated end-of-day POS report covering sales, payment methods, refunds, voids, cash differences, system issues, and next-shift actions
+- Current Sale item list scrolls independently when more than six items are added
+- Current Sale Void button that records voided carts for end-of-day reporting
+- End-of-day report payment methods listed vertically
+- Current Sale auto-scrolls to the newest added item when the cart overflows
+- Current Sale Hold button saves a bill for later purchase and shows the red hold-retention notice
+- Admin setting for held bill save time in hours
+- Reporting receipt details hide cashier login usernames
+- Inventory window includes Purchasing / Company Bills entry for supplier purchases
+- App startup always requires login instead of restoring a prior session
+- Startup defers hidden register rendering until after login for a more responsive login screen
+- Hold and Void actions moved to the Sale Complete screen
+- Main POS window opens maximized on startup and when refocused from a second launch
+- Startup loads only saved business identity and users before login; full POS data loads after sign-in
+- Hold and Void buttons save the current bill as visible Reporting statuses
+- Hold button explicitly confirms the held bill, closes Sale Complete, and refreshes its hold timestamp
+- Void button removed from Sale Complete and order-number reservation optimized for faster Sale Complete display
+- Start Next Sale closes Sale Complete immediately while marking the receipt complete in the background
+- Reporting lists newest invoices and receipts first
+- Receipt saves no longer embed full settings data, preventing oversized invoice JSON
+- Held bill confirmation remains visible for 15 seconds, then fades out
+- First startup creates a local SQLite database for inventory, categories, purchasing bills, reporting, settings, and users
+- Host/Client selection is locked permanently for the PC after the first choice
+- Reporting restores only one held bill at a time, closes immediately, and returns focus to Current Sale
+- Staff login shows a Held Receipts button that opens a restricted hold-only receipt list
+- Held Receipts shows full receipt details and prompts staff for administrator authorization unless the Settings toggle allows restore
+- Held Receipts opens in a larger window with a wider full-detail layout
+- Settings, Inventory, and Reporting windows now open in larger desktop layouts
+- Settings includes selectable gradient themes applied across POS windows
+- Settings layout moves Payment Methods above Receipt Printing, places Sales Tax with payments, and puts Staff Access below User Accounts
+- Business settings include address, and receipt headers show business name, address, and WhatsApp when configured
+- Inventory Add Item inserts the new item at the top of the inventory list
+- New inventory items keep Code blank until category is selected and the row Save button is clicked
+- New inventory item row Save persists immediately to the configured storage/database
+- Newly saved inventory items show a small New badge in Inventory and the main Catalog
+- Held bill and New item timers can be toggled on/off in Settings, default to 24 hours when enabled, and save immediately when changed
+- Settings User Accounts includes an Audit Log window showing user activity for sales, holds, restores, settings, inventory, and reporting access
+- Cashier card shows the logged-in user's name and username without field labels
+- Reporting cashier totals now fall back to cashier name when old receipts have an unknown username
+- Staff login includes a Report button that only opens the end-of-day report generator
+- Staff Report opens with the end-of-day report already generated
+- Staff end-of-day report hides the extra report title/action row
+- End-of-day Save & Send reveals the saved PDF location and opens Windows sharing for the PDF file
+- End-of-day report window closes after Save & Send finishes successfully
+- End-of-day WhatsApp fallback no longer sends the saved PDF file path as message text
+- End-of-day WhatsApp fallback shows the saved PDF file name and drag-and-drop instruction
+- Adding an item to the current sale focuses the Amount tendered textbox
+- Inventory includes a Template button that creates an Excel item import template
+- Version numbers roll over after patch 99, so 1.0.99 is followed by 1.1.0
+- POS data now saves to SQLite in Documents/Simple POS Data instead of Electron userData settings JSON
+- First startup shows a business and owner admin setup wizard before login
+- First startup now selects the local SQLite host database automatically before setup
+- Reporting hides Refresh and Generate End-of-Day Report for admin, administrator, and owner users
+- Reporting auto-refreshes every 10 seconds and the main Reporting button is now Dashboard
+- Application/window title updates to Business Name - POS after business setup
+- Application icon uses a lotus POS design and the default theme is Lotus Glow
+- First-run setup saves receipt printing and silent printing disabled by default
+- Receipt printer options are disabled and greyed out when receipt printing is off
+- Sale Complete receipt dialog hides the top close button
+- Sale Complete only shows Print Receipt when receipt printing is explicitly enabled
+- Receipt headers show Address, Contact, Receipt #, and Date before item lines
+- Discount now prompts for an amount and asks for confirmation before changing the sale total
+- User Accounts now include per-user discount limits for non-admin cashiers
+- Discount now opens an in-app confirmation window that works after Amount tendered is entered
+- Discount is enabled only after Amount tendered is entered and subtracts from the sale total
+- Discount entry and staff discount limits now use percentages instead of dollar amounts
+- Current Sale discount summary shows the active discount percentage
+- Fresh builds start with no business profile, inventory items, or categories preloaded
+- Inventory import templates no longer include sample cosmetic item rows
+- Inventory Import/Export window creates category-dropdown templates and imports Excel rows with generated item codes
+- Windows shortcuts now use the Lotus app icon and rename to Business Name - POS after setup
+- Shortcut cleanup now runs at startup and points directly to the packaged Lotus icon file
+- Windows installer now shows a license agreement with ownership rights and WhatsApp sharing requirements
+- Staff Sale Complete actions hide Print Receipt even when admin printing is enabled
+- Pressing Enter in Amount tendered opens Sale Complete when payment covers the total
+- Current Sale includes a fixed Discount button that subtracts from the final total
+- End-of-day report includes cashier counted cash confirmation with Short, Over, and Balanced drawer status
+- Staff Held Receipts and Report buttons sit to the left of the switch-user card
+- End-of-day cash confirmation supports denomination counts for $1 through $10,000
+- End-of-day confirmation can switch between Cash, Credit Card, and Debit Card, with cash shown in a 5-column grid
+- End-of-day cash/card count fields hide browser number steppers
+- End-of-day count fields are capped at nine digits, maximum 999999999
+- End-of-day $1 cash, Credit Card, and Debit Card counts accept two decimal places
+- End-of-day report requires Confirm to show Balanced, Over, or Short and previews WhatsApp summaries before sending
+- End-of-day drawer status updates in real time while cashier counts are entered
+- End-of-day Confirm advances to unconfirmed payment methods with expected totals before sharing
+- End-of-day decimal fields support numpad decimal input without moving the cursor
+- POS cash tendered field supports numpad decimal input without moving the cursor
+- Decimal money fields use text input mode so numpad decimal does not clear values
+- Balanced end-of-day summaries can be saved locally and opened in WhatsApp for the owner
+- End-of-day Balanced status is shown as green summary text
+- End-of-day reports save as PDFs in Documents/End of Day Report named CashierName-Date-Time
+- End-of-day WhatsApp sharing opens contact selection instead of forcing a saved number
+- End-of-day counts can be confirmed when Balanced, Over, or Short, with summary warning for issues
+- End-of-day payment auto-advance focuses the next amount input
+- End-of-day summary dialog removes the top-right close button
+- End-of-day report labels System Issues as Alert
+- End-of-day summary shows a green saved-location link that opens the PDF in File Explorer
+- End-of-day Report Date uses the PC date/time captured when the report is generated
+- Save & Send to WhatsApp also opens the saved PDF location in File Explorer
+- End-of-day report uses a two-column layout with summary rows on the right
+- End-of-day cash denomination boxes are constrained to the left report column
+- Staff user card moved to the top action area with an updated card switch caption; standalone Logout button hidden
+- Login credential hints are hidden unless Ctrl+0 is held, and they reflect current configured users
+- Settings user passwords include a Show/Hide button for administrator account maintenance
+- Settings User Accounts includes a password recovery note for the hidden login credential shortcut
+- Password recovery note in Settings is highlighted in green
+- Login screen no longer displays the Windows POS eyebrow label
+- SQLite startup logs an error if the database cannot open; POS data is no longer written to JSON storage
+- Native SQLite dependencies rebuild automatically after install for Electron compatibility
+- Purchasing bills support individual supplier invoice items and can add quantities into inventory stock
+- Invoices tied to logged-in username, name, and role
+- Refined Settings grid layout with paired desktop sections and full-width user account management
+- Single-instance app behavior that focuses the existing POS window when launched again
+- Staff access permissions and administrator-password protection for held bill restore
+
+Inventory is managed from the separate `Inventory` window. New items receive a generated code automatically when they are created.
