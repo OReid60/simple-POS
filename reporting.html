@@ -3,20 +3,34 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Reporting</title>
+    <title>Dashboard</title>
     <link rel="stylesheet" href="styles.css">
   </head>
   <body class="settings-page">
     <main class="settings-window reporting-window">
       <header class="settings-window-header">
         <p class="eyebrow" id="reportingEyebrow">Administrator</p>
-        <h1 id="reportingTitle">Reporting</h1>
+        <div class="settings-header-row">
+          <h1 id="reportingTitle">Dashboard</h1>
+          <button class="secondary-button" type="button" data-open-help data-help-topic="dashboard">Help</button>
+        </div>
       </header>
 
       <section class="settings-section">
         <div class="section-title-row">
-          <h2 id="reportingSectionTitle">Invoices / Receipts</h2>
+          <h2 id="reportingSectionTitle" class="is-hidden">Dashboard</h2>
           <div class="section-title-actions">
+            <div class="category-tabs report-category-tabs" id="reportFilterTabs"></div>
+            <input class="dashboard-search-input" id="dashboardSearchInput" type="search" placeholder="Search dashboard">
+            <div class="dashboard-action-buttons">
+              <button
+                class="secondary-button is-hidden"
+                id="adminEndOfDayButton"
+                type="button"
+                title="Open the end-of-day cash-out report."
+              >End-of-Day Report</button>
+              <button class="secondary-button is-hidden" id="auditLogButton" type="button">Audit Log</button>
+            </div>
             <button
               class="secondary-button"
               id="endOfDayButton"
@@ -26,13 +40,47 @@
             <button class="secondary-button" id="refreshReports" type="button">Refresh</button>
           </div>
         </div>
-        <div class="report-summary" id="reportSummary"></div>
-        <div class="reporting-layout">
-          <div class="invoice-list" id="invoiceList"></div>
-          <div class="invoice-detail" id="invoiceDetail"></div>
+        <div class="dashboard-layout">
+          <div class="dashboard-main">
+            <div class="reporting-layout">
+              <div class="dashboard-list-column">
+                <div class="dashboard-list-title-card">
+                  <strong>Receipts</strong>
+                  <span>Receipts are listed below.</span>
+                </div>
+                <div class="invoice-list" id="invoiceList"></div>
+              </div>
+              <div class="dashboard-detail-column">
+                <div class="dashboard-list-title-card">
+                  <strong>Receipt Details</strong>
+                  <span>Review the selected receipt below.</span>
+                </div>
+                <div class="invoice-detail" id="invoiceDetail"></div>
+              </div>
+            </div>
+          </div>
+          <aside class="dashboard-summary-panel" aria-label="Dashboard summary">
+            <div class="report-summary" id="reportSummary"></div>
+          </aside>
         </div>
       </section>
     </main>
+
+    <dialog id="endOfDayStartDialog" class="end-of-day-start-dialog">
+      <form method="dialog" class="auth-modal">
+        <h2>Open End-of-Day Report?</h2>
+        <p>The POS will generate the report using all users and receipts recorded for the selected day.</p>
+        <label>
+          Report Day
+          <input id="endOfDayReportDate" type="date">
+        </label>
+        <div id="endOfDayStartBody"></div>
+        <div class="import-export-actions">
+          <button class="secondary-button" value="cancel" type="submit">Cancel</button>
+          <button class="checkout-button" id="openEndOfDayReport" value="default" type="button">Next</button>
+        </div>
+      </form>
+    </dialog>
 
     <dialog id="endOfDaySummaryDialog">
       <form method="dialog" class="receipt">
@@ -51,6 +99,7 @@
       </form>
     </dialog>
 
+    <script src="window-shortcuts.js"></script>
     <script src="reporting.js"></script>
   </body>
 </html>

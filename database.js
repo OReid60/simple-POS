@@ -1,24 +1,51 @@
+const fs = require("fs");
 const path = require("path");
 
+// SQLite data module: creates the local POS database, stores scalar settings,
+// and keeps inventory, categories, receipts, purchases, voids, and audit logs in tables.
 let db;
 let lastError = "";
+let currentDatabasePath = "";
 
-function openDatabase(userDataPath) {
-  if (!db) {
-    try {
-      const Database = require("better-sqlite3");
-      db = new Database(path.join(userDataPath, "pos-data.sqlite"));
-      db.pragma("journal_mode = WAL");
-      db.pragma("foreign_keys = ON");
-      createSchema();
-      lastError = "";
-    } catch (error) {
-      db = null;
-      lastError = error && error.message ? error.message : String(error);
-      throw error;
-    }
+function resolveDatabasePath(databaseLocation) {
+  const location = String(databaseLocation || "").trim();
+  if (location.toLowerCase().endsWith(".sqlite")) return location;
+  return path.join(location, "pos-data.sqlite");
+}
+
+// Startup/open workflow lazily loads better-sqlite3 and creates schema when missing.
+function openDatabase(databaseLocation) {
+  const nextDatabasePath = resolveDatabasePath(databaseLocation);
+  if (db && currentDatabasePath === nextDatabasePath) return db;
+  if (db) closeDatabase();
+
+  try {
+    fs.mkdirSync(path.dirname(nextDatabasePath), { recursive: true });
+    const Database = require("better-sqlite3");
+    db = new Database(nextDatabasePath);
+    currentDatabasePath = nextDatabasePath;
+    db.pragma("journal_mode = WAL");
+    db.pragma("foreign_keys = ON");
+    createSchema();
+    lastError = "";
+  } catch (error) {
+    db = null;
+    currentDatabasePath = "";
+    lastError = error && error.message ? error.message : String(error);
+    throw error;
   }
   return db;
+}
+
+function closeDatabase() {
+  if (!db) return;
+  db.close();
+  db = null;
+  currentDatabasePath = "";
+}
+
+function getCurrentDatabasePath() {
+  return currentDatabasePath;
 }
 
 function isReady() {
@@ -27,6 +54,13 @@ function isReady() {
 
 function getLastError() {
   return lastError;
+}
+
+async function backupTo(targetPath) {
+  if (!db) throw new Error("SQLite database is not open.");
+  fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+  await db.backup(targetPath);
+  return targetPath;
 }
 
 function createSchema() {
@@ -134,6 +168,7 @@ function readSettings() {
   };
 }
 
+// Save workflow splits scalar settings from table-backed collections.
 function saveSettings(settings) {
   if (!db) return;
   saveScalarSettings(settings);
@@ -338,6 +373,9 @@ function parseJson(value, fallback) {
 }
 
 module.exports = {
+  closeDatabase,
+  getCurrentDatabasePath,
+  backupTo,
   initializeHostDatabase,
   openDatabase,
   isReady,

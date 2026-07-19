@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Purchasing</title>
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body class="settings-page">
+    <main class="settings-window purchasing-window">
+      <header class="settings-window-header">
+        <p class="eyebrow">Administrator</p>
+        <div class="settings-header-row">
+          <h1>Purchasing / Company Bills</h1>
+          <div class="section-title-actions">
+            <button class="secondary-button" type="button" data-open-help>Help</button>
+            <button class="secondary-button" id="addPurchaseBill" type="button">Add Bill</button>
+          </div>
+        </div>
+      </header>
+
+      <form id="purchasingForm" class="settings-form">
+        <section class="settings-section">
+          <div class="purchase-list" id="purchaseList"></div>
+        </section>
+
+        <div class="settings-actions">
+          <button class="secondary-button" id="reloadPurchasing" type="button">Reload</button>
+          <button class="checkout-button" type="submit">Save Purchasing</button>
+        </div>
+        <div class="purchase-status-list" id="billStatusList"></div>
+        <p class="settings-note" id="saveStatus" role="status"></p>
+      </form>
+    </main>
+
+    <dialog id="adminAuthDialog" class="auth-dialog">
+      <form method="dialog" class="auth-modal">
+        <h2>Admin / Owner Authorization</h2>
+        <p>Enter an Admin or Owner password to delete this purchasing bill and reverse inventory changes from it.</p>
+        <label>
+          Password
+          <input id="adminAuthPassword" type="password" autocomplete="current-password">
+        </label>
+        <p class="settings-note danger-text" id="adminAuthError" role="alert"></p>
+        <div class="import-export-actions">
+          <button class="secondary-button" id="cancelAdminAuth" value="cancel" type="button">Cancel</button>
+          <button class="checkout-button" id="confirmAdminAuth" value="default" type="button">Confirm</button>
+        </div>
+      </form>
+    </dialog>
+
+    <script src="window-shortcuts.js"></script>
+    <script src="purchasing.js"></script>
+  </body>
+</html>

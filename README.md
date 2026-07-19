@@ -33,6 +33,16 @@ npm run build:win
 
 The installer will be created in the `dist` folder.
 
+## Patch Notes
+
+See [PATCH_NOTES.md](PATCH_NOTES.md) for the full application changelog from `1.0.0` onward.
+
+## Next Focus Path
+
+1. Dashboard reporting polish: sales, cashier, payment, item/category, holds, voids, tax, discount, and purchase order totals.
+2. Inventory operations: barcode/SKU, reorder levels, low-stock dashboard card, and stock adjustment reasons.
+3. Reliability: backup/restore, database health checks, report exports, and admin recovery tools.
+
 ## Settings
 
 Log in as `admin`, open Settings, and manage:
@@ -49,12 +59,17 @@ Log in as `admin`, open Settings, and manage:
 - Reporting window with saved receipts/invoices
 - User account setup in Settings
 - Mixed horizontal/vertical Settings layout for business, printer, and user account setup
+- Settings are grouped by Business, Inventory, Payment Methods, Printer Settings, Database Mode, and User Account
+- User Account settings can expand or collapse like Database Mode
+- Help is available from setup, login, POS, Settings, Inventory, Dashboard, Purchasing, and Audit Log windows
 - Receipt printing toggle that controls whether Print Receipt appears after sale completion
 - Receipt statuses in Reporting with orange Hold and green Complete states
 - Hold bill restore/delete actions and automatic completed receipt cleanup after 24 hours
 - Business logo upload in Settings
 - Square business logo picker and hidden Current Sale clear button
 - Configurable payment methods in Settings
+- Settings toggles for Inventory SKU, Barcode, Item Note, and Stock Adjustment Reason fields
+- Inventory has collapsible Categories and Status Catalog controls, with protected default statuses
 - End-of-day Reporting summary by cashier and payment method
 - End of Day button in Reporting to focus the receipt list on today's completed sales
 - Sequential saved order numbers that remain consistent after closing and reopening the POS
@@ -66,7 +81,7 @@ Log in as `admin`, open Settings, and manage:
 - Current Sale Hold button saves a bill for later purchase and shows the red hold-retention notice
 - Admin setting for held bill save time in hours
 - Reporting receipt details hide cashier login usernames
-- Inventory window includes Purchasing / Company Bills entry for supplier purchases
+- Dashboard includes an Add Bill button that opens Purchasing / Company Bills for supplier purchases
 - App startup always requires login instead of restoring a prior session
 - Startup defers hidden register rendering until after login for a more responsive login screen
 - Hold and Void actions moved to the Sale Complete screen
@@ -80,7 +95,9 @@ Log in as `admin`, open Settings, and manage:
 - Receipt saves no longer embed full settings data, preventing oversized invoice JSON
 - Held bill confirmation remains visible for 15 seconds, then fades out
 - First startup creates a local SQLite database for inventory, categories, purchasing bills, reporting, settings, and users
-- Host/Client selection is locked permanently for the PC after the first choice
+- Host/Client database mode is locked by default and can be unlocked in Settings with Ctrl+1 by an admin/owner
+- Database backups run in the background once daily on startup and after end-of-day confirmation; Client mode backs up the Host database, while Host mode saves a local Host backup
+- SQLite database files are not directly managed through SQL Server Management Studio; SQL Server support would require a separate database migration
 - Reporting restores only one held bill at a time, closes immediately, and returns focus to Current Sale
 - Staff login shows a Held Receipts button that opens a restricted hold-only receipt list
 - Held Receipts shows full receipt details and prompts staff for administrator authorization unless the Settings toggle allows restore
@@ -107,7 +124,7 @@ Log in as `admin`, open Settings, and manage:
 - Adding an item to the current sale focuses the Amount tendered textbox
 - Inventory includes a Template button that creates an Excel item import template
 - Version numbers roll over after patch 99, so 1.0.99 is followed by 1.1.0
-- POS data now saves to SQLite in Documents/Simple POS Data instead of Electron userData settings JSON
+- POS data now saves to SQLite in a `POS Database` folder beside the installed application instead of Electron userData settings JSON
 - First startup shows a business and owner admin setup wizard before login
 - First startup now selects the local SQLite host database automatically before setup
 - Reporting hides Refresh and Generate End-of-Day Report for admin, administrator, and owner users
@@ -131,6 +148,9 @@ Log in as `admin`, open Settings, and manage:
 - Windows shortcuts now use the Lotus app icon and rename to Business Name - POS after setup
 - Shortcut cleanup now runs at startup and points directly to the packaged Lotus icon file
 - Windows installer now shows a license agreement with ownership rights and WhatsApp sharing requirements
+- Settings, Inventory, Dashboard, Held Receipts, Report, and Audit windows are modal so the POS behind them stays inactive
+- Settings includes an Edit Layout mode for dragging sections and resizing them between half-width and full-width
+- Settings includes locked Host/Client database mode controls that unlock with Ctrl+1 and back up local data when a client host is unavailable
 - Staff Sale Complete actions hide Print Receipt even when admin printing is enabled
 - Pressing Enter in Amount tendered opens Sale Complete when payment covers the total
 - Current Sale includes a fixed Discount button that subtracts from the final total
@@ -173,5 +193,56 @@ Log in as `admin`, open Settings, and manage:
 - Refined Settings grid layout with paired desktop sections and full-width user account management
 - Single-instance app behavior that focuses the existing POS window when launched again
 - Staff access permissions and administrator-password protection for held bill restore
+- Settings layout Move control now matches the Resize button style and stays clickable while editing layout
+- Default Host database storage now lives in the app installation folder under `POS Database`, with one-time migration from the old Documents data folder
+- Business settings fields and logo tile can now be moved and resized while editing the Settings layout
+- Electron startup diagnostic logging is suppressed so official-build CHECK messages do not appear during app launch
+- Settings Edit Layout and Reset Layout buttons stay hidden until Ctrl+Shift+L toggles layout controls visible
+- Added consolidated patch notes in `PATCH_NOTES.md`
+- Inventory Import/Export button is hidden until that workflow is resumed
+- Purchasing / Company Bills now opens in its own window from the Dashboard Add Bill button
+- Settings Printer Settings section has inline printer refresh, clearer printer status, and floating Save Settings controls
+- Floating Save Settings now sits on the right without a white panel behind it
+- Database Mode in Settings is collapsible and starts collapsed
+- Save Settings now floats outside all Settings sections in the lower-right corner
+- Admin/owner Dashboard includes an End-of-Day Report button for cash-out reporting
+- Purchasing bills can catalog payments and only allow Paid when balance due is $0.00
+- Purchasing lists bill status below Reload and Save Purchasing as Paid or Unpaid
+- Purchasing Add Bill starts a cleared new bill draft
+- Saved Purchasing bill status rows can be clicked to reload a bill for payment entry
+- Purchasing payment amount now stamps date/time and reduces Balance Due when Add Payment is clicked
+- Purchasing Bill Status now sits beside the bill form on desktop and automatically marks bills Paid at `$0.00` balance
+- Purchasing Bill Status shows compact newest-first bills with internal bill number, date/time, and admin-password deletion
+- Escape closes secondary POS windows, and Purchasing Bill Status updates live while entering a new bill
+- Purchasing Add Payment now immediately saves the bill, audits the payment, and shows the latest payment/paid timestamp in Bill Status
+- Purchasing Add Payment clears the bill form after saving so the next bill can be entered cleanly
+- Audit Log can open recorded purchasing payment entries directly in the matching Purchasing bill
+- Purchasing bill deletion requires Admin/Owner authorization and reverses recorded stock and tracked price changes
+- Purchasing asks before updating an existing inventory item sell price from a new bill
+- Inventory items now support Active, Inactive, and Promotion statuses
+- Deleted purchase bills mark newly created bill items inactive with the reason saved in the item note
+- Dashboard now includes Audit Log beside End-of-Day Report
+- Admin/Owner End-of-Day Report opens a generated summary confirmation before the full report window
+- End-of-Day Report supports selecting the report day
+- Secondary POS windows now open maximized like the main register
+- Add Bill is available from Inventory
+- Dashboard/Reporting can filter receipts by status tabs
+- Dashboard search and status tabs make it easier to pull Hold, Complete, and matching receipt data
+- Dashboard includes Paid and Unpaid purchasing bill filters, counts purchasing bills, and opens matching purchase records
+- Audit Log can open saved purchasing and purchase inventory records directly in Purchasing
+- Sale Complete Enter key defaults to Start Next Sale and can be changed in Printer Settings
+- Dashboard summary cards now use a right-side panel with Audit Log beside End-of-Day Report
+- Dashboard window and summary labels now use Dashboard, Cashier, Payment Method, and Purchase Orders wording
+- Dashboard search, End-of-Day Report, and Audit Log controls align side by side on desktop
+- Dashboard receipt list includes a title card, shows seven records before scrolling, and uses a compact Open Purchasing Bill action
+- Dashboard displayed receipt panel includes its own title card and starts details at Order
+- Dashboard filter buttons sit to the left of the search bar in the top action row
+- Dashboard receipt detail card is labeled Receipt Details with clearer helper text
+- Escape closes secondary windows more reliably across Settings, Inventory, Purchasing, Dashboard, Report, and Audit Log
+- Dashboard reporting cards summarize sales, tax, discounts, cashier/payment totals, top items/categories, holds, voids, and purchase orders
+- Pressing Esc on Sale Complete warns the user and places the receipt on Hold
+- Restored held bills focus Amount Tendered so cashiers can enter payment immediately
+- Optional Ctrl+L shortcut logs out to the login screen across POS windows and confirms app close from login
+- Inventory operations include SKU/barcode, reorder level, low-stock dashboard card, and required stock adjustment reasons
 
 Inventory is managed from the separate `Inventory` window. New items receive a generated code automatically when they are created.

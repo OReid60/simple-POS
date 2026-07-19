@@ -1,3 +1,5 @@
+// Dashboard/Reporting module: lists receipts and purchase orders, renders selected details,
+// runs end-of-day reports, and opens audit/purchasing workflows.
 const els = {
   invoiceList: document.querySelector("#invoiceList"),
   invoiceDetail: document.querySelector("#invoiceDetail"),
@@ -5,8 +7,16 @@ const els = {
   reportingEyebrow: document.querySelector("#reportingEyebrow"),
   reportingTitle: document.querySelector("#reportingTitle"),
   reportingSectionTitle: document.querySelector("#reportingSectionTitle"),
+  dashboardSearchInput: document.querySelector("#dashboardSearchInput"),
+  reportFilterTabs: document.querySelector("#reportFilterTabs"),
+  adminEndOfDayButton: document.querySelector("#adminEndOfDayButton"),
+  auditLogButton: document.querySelector("#auditLogButton"),
   endOfDayButton: document.querySelector("#endOfDayButton"),
   refreshReports: document.querySelector("#refreshReports"),
+  endOfDayStartDialog: document.querySelector("#endOfDayStartDialog"),
+  endOfDayReportDate: document.querySelector("#endOfDayReportDate"),
+  endOfDayStartBody: document.querySelector("#endOfDayStartBody"),
+  openEndOfDayReport: document.querySelector("#openEndOfDayReport"),
   endOfDaySummaryDialog: document.querySelector("#endOfDaySummaryDialog"),
   endOfDaySummaryBody: document.querySelector("#endOfDaySummaryBody"),
   endOfDaySavedLocation: document.querySelector("#endOfDaySavedLocation"),
@@ -14,19 +24,25 @@ const els = {
 };
 
 const modeParam = new URLSearchParams(window.location.search).get("mode");
+const reportDateParam = new URLSearchParams(window.location.search).get("reportDate");
 const reportMode = modeParam === "holds" || modeParam === "eod" ? modeParam : "all";
 const CASH_DENOMINATIONS = [1, 10, 20, 50, 100, 500, 1000, 5000, 10000];
 const MAX_COUNT_INPUT = 999999999;
 const MAX_COUNT_INPUT_LENGTH = 9;
 const REPORT_AUTO_REFRESH_MS = 10000;
 let invoices = [];
+let purchases = [];
 let voids = [];
-let selectedOrderNumber = null;
+let products = [];
+let selectedDashboardRecordKey = null;
 let settingsCache = {};
 let endOfDayMode = false;
 let restoreInProgress = false;
 let lastEndOfDaySummary = null;
+let endOfDayBackupRequested = false;
 let endOfDayGeneratedAt = "";
+let selectedReportDate = normalizeReportDate(reportDateParam);
+let activeReportFilter = "All";
 
 function applyReportMode() {
   applyReportingActionVisibility();
@@ -36,22 +52,30 @@ function applyReportMode() {
     els.reportingTitle.textContent = "Held Receipts";
     els.reportingSectionTitle.textContent = "Held Receipts";
     els.reportSummary.classList.add("is-hidden");
+    els.reportFilterTabs.classList.add("is-hidden");
+    els.dashboardSearchInput.classList.add("is-hidden");
+    els.adminEndOfDayButton.classList.add("is-hidden");
     els.endOfDayButton.classList.add("is-hidden");
     document.title = "Held Receipts";
     return;
   }
   if (reportMode === "eod") {
     document.body.classList.add("staff-eod-report-mode");
-    els.reportingEyebrow.textContent = "Staff";
+    els.reportingEyebrow.textContent = getReportEyebrow();
     els.reportingTitle.textContent = "Report";
     els.reportingSectionTitle.textContent = "End-of-Day Report";
     els.reportSummary.classList.add("is-hidden");
+    els.reportFilterTabs.classList.add("is-hidden");
+    els.dashboardSearchInput.classList.add("is-hidden");
+    els.adminEndOfDayButton.classList.add("is-hidden");
     els.refreshReports.classList.add("is-hidden");
     document.title = "End-of-Day Report";
   }
 }
 
 function applyReportingActionVisibility() {
+  els.adminEndOfDayButton.classList.toggle("is-hidden", !isAdminOwnerUser() || reportMode !== "all");
+  els.auditLogButton.classList.toggle("is-hidden", !isAdminOwnerUser() || reportMode !== "all");
   if (!isAdminOwnerUser()) return;
   els.endOfDayButton.classList.add("is-hidden");
   els.refreshReports.classList.add("is-hidden");
@@ -70,8 +94,11 @@ async function loadReports() {
   settingsCache = settings;
   applyTheme(settings.themeGradient);
   invoices = Array.isArray(settings.invoices) ? settings.invoices : [];
+  purchases = normalizeDashboardPurchases(settings.purchases);
   voids = Array.isArray(settings.voids) ? settings.voids : [];
+  products = normalizeDashboardProducts(settings.products);
   renderSummary();
+  renderReportFilterTabs();
   renderInvoices();
   if (reportMode === "eod" && !endOfDayMode) generateEndOfDayReport();
 }
@@ -85,8 +112,20 @@ function renderSummary() {
   const completedToday = invoices.filter(
     (invoice) => getStatus(invoice) === "complete" && isToday(invoice.completedAt || invoice.savedAt || invoice.date)
   );
+  const holdReceipts = invoices.filter((invoice) => getStatus(invoice) === "hold");
+  const voidsToday = [
+    ...invoices.filter((invoice) => getStatus(invoice) === "void" && isToday(invoice.voidedAt || invoice.completedAt || invoice.savedAt || invoice.date)),
+    ...voids.filter((voidSale) => isToday(voidSale.voidedAt || voidSale.date))
+  ];
+  const purchaseTotals = getPurchaseDashboardTotals();
   const totalsByCashier = new Map();
   const totalsByPayment = new Map();
+  const salesTotal = completedToday.reduce((sum, invoice) => sum + parseMoney(invoice.total), 0);
+  const taxTotal = completedToday.reduce((sum, invoice) => sum + parseMoney(invoice.tax), 0);
+  const discountTotal = completedToday.reduce((sum, invoice) => sum + parseMoney(invoice.discount), 0);
+  const voidTotal = voidsToday.reduce((sum, item) => sum + parseMoney(item.total), 0);
+  const lowStockItems = getLowStockItems();
+  const noStockCount = products.filter((product) => product.status !== "inactive" && Number(product.stock) <= 0).length;
 
   completedToday.forEach((invoice) => {
     const cashier = getCashierLabel(invoice);
@@ -102,21 +141,133 @@ function renderSummary() {
   const paymentRows = [...totalsByPayment.entries()]
     .map(([payment, total]) => `<span>${escapeHtml(payment)}: ${formatMoney(total)}</span>`)
     .join("");
+  const itemRows = renderSalesBreakdownRows(getSalesBreakdown(completedToday, "item"), "No item sales today.");
+  const categoryRows = renderSalesBreakdownRows(getSalesBreakdown(completedToday, "category"), "No category sales today.");
 
   els.reportSummary.innerHTML = `
     <div>
-      <strong>End of Day</strong>
-      <span>${completedToday.length} completed receipt(s)</span>
+      <strong>Today</strong>
+      <span>Sales: ${formatMoney(salesTotal)}</span>
+      <span>Receipts: ${completedToday.length}</span>
+      <span>Tax: ${formatMoney(taxTotal)}</span>
+      <span>Discounts: ${formatMoney(discountTotal)}</span>
     </div>
     <div>
-      <strong>By Cashier</strong>
+      <strong>Cashier</strong>
       ${cashierRows || "<span>No completed sales today.</span>"}
     </div>
     <div>
-      <strong>By Payment</strong>
+      <strong>Payment Method</strong>
       ${paymentRows || "<span>No completed sales today.</span>"}
     </div>
+    <div>
+      <strong>Top Items</strong>
+      ${itemRows}
+    </div>
+    <div>
+      <strong>Categories</strong>
+      ${categoryRows}
+    </div>
+    <div>
+      <strong>Holds & Voids</strong>
+      <span>Holds: ${holdReceipts.length}</span>
+      <span>Voids today: ${voidsToday.length}</span>
+      <span>Void total: ${formatMoney(voidTotal)}</span>
+    </div>
+    <div>
+      <strong>Low Stock</strong>
+      <span>Low-stock items: ${lowStockItems.length}</span>
+      <span>Out of stock: ${noStockCount}</span>
+      ${renderLowStockRows(lowStockItems)}
+    </div>
+    <div>
+      <strong>Purchase Orders</strong>
+      <span>Paid: ${purchaseTotals.paid}</span>
+      <span>Unpaid: ${purchaseTotals.unpaid}</span>
+      <span>Total: ${formatMoney(purchaseTotals.amountTotal)}</span>
+      <span>Balance due: ${formatMoney(purchaseTotals.balanceDue)}</span>
+    </div>
   `;
+}
+
+function normalizeDashboardProducts(sourceProducts) {
+  return Array.isArray(sourceProducts)
+    ? sourceProducts.map((product) => ({
+        id: String(product.id || "").trim(),
+        name: String(product.name || "Unnamed Item").trim(),
+        sku: String(product.sku || "").trim(),
+        barcode: String(product.barcode || "").trim(),
+        category: String(product.category || "General").trim(),
+        stock: Number(product.stock) || 0,
+        reorderLevel: Math.max(0, Number(product.reorderLevel) || 0),
+        status: String(product.status || "active").trim().toLowerCase()
+      }))
+    : [];
+}
+
+function getLowStockItems() {
+  return products
+    .filter((product) => product.status !== "inactive" && product.reorderLevel > 0 && product.stock <= product.reorderLevel)
+    .sort((left, right) => {
+      const leftGap = left.stock - left.reorderLevel;
+      const rightGap = right.stock - right.reorderLevel;
+      if (leftGap !== rightGap) return leftGap - rightGap;
+      return left.name.localeCompare(right.name);
+    });
+}
+
+function renderLowStockRows(items) {
+  const rows = items
+    .slice(0, 3)
+    .map((item) => `<span>${escapeHtml(item.name)}: ${item.stock} / ${item.reorderLevel}</span>`)
+    .join("");
+  return rows || "<span>No reorder alerts.</span>";
+}
+
+function getSalesBreakdown(receipts, type) {
+  return receipts.reduce((map, invoice) => {
+    (Array.isArray(invoice.items) ? invoice.items : []).forEach((item) => {
+      const label = type === "category" ? item.category || "Uncategorized" : item.name || "Unknown item";
+      const quantity = Number(item.quantity) || 0;
+      const fallbackTotal = (Number(item.price) || 0) * quantity;
+      const total = parseMoney(item.lineTotal) || fallbackTotal;
+      const current = map.get(label) || { quantity: 0, total: 0 };
+      current.quantity += quantity;
+      current.total += total;
+      map.set(label, current);
+    });
+    return map;
+  }, new Map());
+}
+
+function renderSalesBreakdownRows(map, emptyMessage) {
+  const rows = [...map.entries()]
+    .sort((left, right) => right[1].total - left[1].total)
+    .slice(0, 3)
+    .map(([label, values]) => `<span>${escapeHtml(label)}: ${values.quantity} / ${formatMoney(values.total)}</span>`)
+    .join("");
+  return rows || `<span>${escapeHtml(emptyMessage)}</span>`;
+}
+
+function renderReportFilterTabs() {
+  if (reportMode !== "all" || !els.reportFilterTabs) return;
+  const receiptCounts = getReceiptDashboardCounts();
+  const purchaseTotals = getPurchaseDashboardTotals();
+  const filters = [
+    { label: "All", count: receiptCounts.all + purchaseTotals.total },
+    { label: "Hold", count: receiptCounts.hold },
+    { label: "Complete", count: receiptCounts.complete },
+    { label: "Paid", count: purchaseTotals.paid },
+    { label: "Unpaid", count: purchaseTotals.unpaid }
+  ];
+  if (receiptCounts.void > 0) filters.push({ label: "Void", count: receiptCounts.void });
+  if (!filters.some((filter) => filter.label === activeReportFilter)) activeReportFilter = "All";
+  els.reportFilterTabs.innerHTML = filters
+    .map((filter) => {
+      const active = filter.label === activeReportFilter ? "active" : "";
+      return `<button class="${active}" type="button" data-report-filter="${escapeHtml(filter.label)}">${escapeHtml(filter.label)} <span>${filter.count}</span></button>`;
+    })
+    .join("");
 }
 
 function getCashierLabel(invoice) {
@@ -135,30 +286,31 @@ function formatMoney(value) {
 }
 
 function renderInvoices() {
-  const visibleInvoices = getVisibleInvoices();
+  const visibleRecords = getVisibleDashboardRecords();
 
-  els.invoiceList.innerHTML = visibleInvoices.length
-    ? visibleInvoices
+  els.invoiceList.innerHTML = visibleRecords.length
+    ? visibleRecords
         .map((invoice, index) => {
-          const status = getStatus(invoice);
+          if (invoice.type === "purchase") return renderPurchaseListItem(invoice.purchase, index);
+          const status = getStatus(invoice.invoice);
           return `
-            <button class="invoice-list-item" type="button" data-invoice-index="${index}">
+            <button class="invoice-list-item" type="button" data-record-index="${index}">
               <span class="invoice-list-topline">
-                <strong>#${escapeHtml(invoice.orderNumber)}</strong>
+                <strong>#${escapeHtml(invoice.invoice.orderNumber)}</strong>
                 <span class="status-pill ${getStatusClass(status)}">${getStatusLabel(status)}</span>
               </span>
-              <span>${escapeHtml(invoice.date)}</span>
-              <span>${escapeHtml(invoice.total)}</span>
+              <span>${escapeHtml(invoice.invoice.date)}</span>
+              <span>${escapeHtml(invoice.invoice.total)}</span>
             </button>
           `;
         })
         .join("")
     : `<div class="empty-cart">${getEmptyInvoiceMessage()}</div>`;
 
-  const selectedInvoice =
-    visibleInvoices.find((invoice) => String(invoice.orderNumber) === String(selectedOrderNumber)) || visibleInvoices[0];
-  selectedOrderNumber = selectedInvoice?.orderNumber || null;
-  renderInvoiceDetail(selectedInvoice);
+  const selectedRecord =
+    visibleRecords.find((record) => getDashboardRecordKey(record) === selectedDashboardRecordKey) || visibleRecords[0];
+  selectedDashboardRecordKey = selectedRecord ? getDashboardRecordKey(selectedRecord) : null;
+  renderDashboardDetail(selectedRecord);
 }
 
 function getVisibleInvoices() {
@@ -174,20 +326,96 @@ function getVisibleInvoices() {
   }
   const visibleInvoices = endOfDayMode
     ? invoices.filter(
-        (invoice) => getStatus(invoice) === "complete" && isToday(invoice.completedAt || invoice.savedAt || invoice.date)
+        (invoice) => getStatus(invoice) === "complete" && isReportDate(invoice.completedAt || invoice.savedAt || invoice.date)
       )
     : invoices;
-  return [...visibleInvoices].sort((a, b) => {
+  const statusFilteredInvoices = activeReportFilter === "All"
+    ? visibleInvoices
+    : visibleInvoices.filter((invoice) => getStatusLabel(getStatus(invoice)) === activeReportFilter);
+  const searchFilteredInvoices = statusFilteredInvoices.filter(matchesDashboardSearch);
+  return [...searchFilteredInvoices].sort((a, b) => {
     const timestampDifference = getInvoiceTimestamp(b) - getInvoiceTimestamp(a);
     if (timestampDifference !== 0) return timestampDifference;
     return Number(b.orderNumber) - Number(a.orderNumber);
   });
 }
 
+function getVisibleDashboardRecords() {
+  if (reportMode !== "all") {
+    return getVisibleInvoices().map((invoice) => ({ type: "invoice", invoice }));
+  }
+
+  const visibleInvoices = endOfDayMode
+    ? invoices.filter(
+        (invoice) => getStatus(invoice) === "complete" && isReportDate(invoice.completedAt || invoice.savedAt || invoice.date)
+      )
+    : invoices;
+  const invoiceRecords = visibleInvoices.map((invoice) => ({ type: "invoice", invoice }));
+  const purchaseRecords = purchases.map((purchase) => ({ type: "purchase", purchase }));
+  const filteredRecords = [...invoiceRecords, ...purchaseRecords]
+    .filter(matchesDashboardRecordFilter)
+    .filter(matchesDashboardSearch);
+
+  return filteredRecords.sort((a, b) => {
+    const timestampDifference = getDashboardRecordTimestamp(b) - getDashboardRecordTimestamp(a);
+    if (timestampDifference !== 0) return timestampDifference;
+    return getDashboardRecordKey(b).localeCompare(getDashboardRecordKey(a));
+  });
+}
+
+function matchesDashboardRecordFilter(record) {
+  if (activeReportFilter === "All") return true;
+  if (record.type === "invoice") return getStatusLabel(getStatus(record.invoice)) === activeReportFilter;
+  if (record.type === "purchase") return getPurchaseStatusLabel(record.purchase) === activeReportFilter;
+  return false;
+}
+
+function matchesDashboardSearch(record) {
+  const searchTerm = String(els.dashboardSearchInput?.value || "").trim().toLowerCase();
+  if (!searchTerm) return true;
+
+  if (record.type === "purchase") {
+    const purchase = record.purchase;
+    const itemText = (Array.isArray(purchase.items) ? purchase.items : [])
+      .map((item) => `${item.code || ""} ${item.name || ""} ${item.category || ""}`)
+      .join(" ");
+    const haystack = [
+      purchase.id,
+      purchase.company,
+      purchase.billNumber,
+      purchase.date,
+      formatMoney(purchase.amount),
+      formatMoney(getPurchasePaymentTotal(purchase.payments)),
+      formatMoney(getPurchaseBalance(purchase.amount, purchase.payments)),
+      getPurchaseStatusLabel(purchase),
+      purchase.notes,
+      itemText
+    ].join(" ").toLowerCase();
+    return haystack.includes(searchTerm);
+  }
+
+  const invoice = record.invoice || record;
+  const itemText = (Array.isArray(invoice.items) ? invoice.items : [])
+    .map((item) => `${item.id || ""} ${item.name || ""} ${item.category || ""}`)
+    .join(" ");
+  const haystack = [
+    invoice.orderNumber,
+    invoice.date,
+    invoice.total,
+    invoice.cashier,
+    invoice.cashierUsername,
+    invoice.paymentMethod,
+    getStatusLabel(getStatus(invoice)),
+    itemText
+  ].join(" ").toLowerCase();
+  return haystack.includes(searchTerm);
+}
+
 function getEmptyInvoiceMessage() {
   if (reportMode === "holds") return "No held receipts found.";
   if (reportMode === "eod") return "";
-  return endOfDayMode ? "No completed receipts for today." : "No receipts have been completed yet.";
+  if (String(els.dashboardSearchInput?.value || "").trim() || activeReportFilter !== "All") return "No matching dashboard records found.";
+  return endOfDayMode ? "No completed receipts for today." : "No receipts or purchasing bills have been recorded yet.";
 }
 
 function getInvoiceTimestamp(invoice) {
@@ -195,11 +423,34 @@ function getInvoiceTimestamp(invoice) {
   return Number.isNaN(timestamp) ? 0 : timestamp;
 }
 
-function renderInvoiceDetail(invoice) {
-  if (!invoice) {
+function getDashboardRecordTimestamp(record) {
+  if (record.type === "purchase") return getPurchaseTimestamp(record.purchase);
+  return getInvoiceTimestamp(record.invoice);
+}
+
+function getDashboardRecordKey(record) {
+  if (!record) return "";
+  if (record.type === "purchase") return `purchase:${record.purchase.id}`;
+  return `invoice:${record.invoice.orderNumber}`;
+}
+
+function renderDashboardDetail(record) {
+  if (!record) {
     els.invoiceDetail.innerHTML = reportMode === "holds"
       ? `<div class="empty-cart compact-empty">Select a held receipt to review it.</div>`
       : "";
+    return;
+  }
+  if (record.type === "purchase") {
+    renderPurchaseDetail(record.purchase);
+    return;
+  }
+  renderInvoiceDetail(record.invoice);
+}
+
+function renderInvoiceDetail(invoice) {
+  if (!invoice) {
+    els.invoiceDetail.innerHTML = "";
     return;
   }
 
@@ -225,10 +476,6 @@ function renderInvoiceDetail(invoice) {
       : "";
 
   els.invoiceDetail.innerHTML = `
-    <div class="receipt-row"><span>Status</span><strong class="status-pill ${getStatusClass(status)}">${getStatusLabel(status)}</strong></div>
-    <div class="receipt-row"><span>Business</span><strong>${escapeHtml(invoice.businessName)}</strong></div>
-    ${invoice.businessAddress ? `<div class="receipt-row"><span>Address</span><strong>${escapeHtml(invoice.businessAddress)}</strong></div>` : ""}
-    ${invoice.whatsappNumber ? `<div class="receipt-row"><span>WhatsApp</span><strong>${escapeHtml(invoice.whatsappNumber)}</strong></div>` : ""}
     <div class="receipt-row"><span>Order</span><strong>#${escapeHtml(invoice.orderNumber)}</strong></div>
     <div class="receipt-row"><span>Date</span><strong>${escapeHtml(invoice.date)}</strong></div>
     <div class="receipt-row"><span>Cashier</span><strong>${escapeHtml(invoice.cashier)}</strong></div>
@@ -242,6 +489,169 @@ function renderInvoiceDetail(invoice) {
     <div class="receipt-row"><span>Change</span><strong>${escapeHtml(invoice.change)}</strong></div>
     ${holdActions}
   `;
+}
+
+function renderPurchaseListItem(purchase, index) {
+  const statusLabel = getPurchaseStatusLabel(purchase);
+  const balance = getPurchaseBalance(purchase.amount, purchase.payments);
+  return `
+    <button class="invoice-list-item" type="button" data-record-index="${index}">
+      <span class="invoice-list-topline">
+        <strong>${escapeHtml(purchase.id)}</strong>
+        <span class="status-pill ${statusLabel === "Paid" ? "status-complete" : "status-hold"}">${statusLabel}</span>
+      </span>
+      <span>${escapeHtml(purchase.company || "Supplier bill")}</span>
+      <span>${escapeHtml(purchase.billNumber ? `Invoice ${purchase.billNumber}` : formatPurchaseDate(purchase.createdAt || purchase.date))}</span>
+      <span>${escapeHtml(formatMoney(balance))} due</span>
+    </button>
+  `;
+}
+
+function renderPurchaseDetail(purchase) {
+  const payments = normalizePurchasePayments(purchase.payments);
+  const items = Array.isArray(purchase.items) ? purchase.items : [];
+  const paymentRows = payments.length
+    ? payments
+        .map(
+          (payment) => `
+            <div class="receipt-row">
+              <span>${escapeHtml(formatPurchaseDate(payment.createdAt || payment.date))}</span>
+              <strong>${escapeHtml(formatMoney(payment.amount))}</strong>
+            </div>
+          `
+        )
+        .join("")
+    : `<div class="receipt-row"><span>Payments</span><strong>No payments recorded.</strong></div>`;
+  const itemRows = items.length
+    ? items
+        .map(
+          (item) => `
+            <div class="receipt-row">
+              <span>${escapeHtml(item.quantity || 0)} x ${escapeHtml(item.name || "Bill item")}</span>
+              <strong>${escapeHtml(formatMoney(Number(item.cost || 0) * Number(item.quantity || 0)))}</strong>
+            </div>
+          `
+        )
+        .join("")
+    : `<div class="receipt-row"><span>Items</span><strong>No bill items recorded.</strong></div>`;
+  const statusLabel = getPurchaseStatusLabel(purchase);
+
+  els.invoiceDetail.innerHTML = `
+    <div class="receipt-row"><span>Type</span><strong>Purchasing Bill</strong></div>
+    <div class="receipt-row"><span>Status</span><strong class="status-pill ${statusLabel === "Paid" ? "status-complete" : "status-hold"}">${statusLabel}</strong></div>
+    <div class="receipt-row"><span>Internal Bill</span><strong>${escapeHtml(purchase.id)}</strong></div>
+    <div class="receipt-row"><span>Company</span><strong>${escapeHtml(purchase.company || "Supplier bill")}</strong></div>
+    <div class="receipt-row"><span>Invoice #</span><strong>${escapeHtml(purchase.billNumber || "No invoice number")}</strong></div>
+    <div class="receipt-row"><span>Bill Date</span><strong>${escapeHtml(formatPurchaseDate(purchase.date))}</strong></div>
+    <div class="receipt-row"><span>Created</span><strong>${escapeHtml(formatPurchaseDate(purchase.createdAt))}</strong></div>
+    <div class="receipt-row"><span>Bill Total</span><strong>${escapeHtml(formatMoney(purchase.amount))}</strong></div>
+    <div class="receipt-row"><span>Payments</span><strong>${escapeHtml(formatMoney(getPurchasePaymentTotal(payments)))}</strong></div>
+    <div class="receipt-row"><span>Balance Due</span><strong>${escapeHtml(formatMoney(getPurchaseBalance(purchase.amount, payments)))}</strong></div>
+    ${purchase.notes ? `<div class="receipt-row"><span>Notes</span><strong>${escapeHtml(purchase.notes)}</strong></div>` : ""}
+    ${paymentRows}
+    ${itemRows}
+    <div class="report-actions">
+      <button class="secondary-button purchase-open-button" type="button" data-open-purchase="${escapeHtml(purchase.id)}">Open Purchasing Bill</button>
+    </div>
+  `;
+}
+
+function normalizeDashboardPurchases(sourcePurchases) {
+  return Array.isArray(sourcePurchases)
+    ? sourcePurchases
+        .map((purchase, index) => {
+          const payments = normalizePurchasePayments(purchase.payments);
+          const amount = Number(purchase.amount) || 0;
+          return {
+            id: String(purchase.id || `PO-${Date.now()}-${index}`).trim(),
+            company: String(purchase.company || "").trim(),
+            billNumber: String(purchase.billNumber || "").trim(),
+            date: String(purchase.date || "").slice(0, 10),
+            createdAt: getPurchaseCreatedAt(purchase, index),
+            notes: String(purchase.notes || "").trim(),
+            amount,
+            payments,
+            paid: getPurchaseBalance(amount, payments) <= 0,
+            items: Array.isArray(purchase.items) ? purchase.items : []
+          };
+        })
+        .filter((purchase) => purchase.id || purchase.company || purchase.billNumber || purchase.amount > 0 || purchase.payments.length || purchase.items.length)
+    : [];
+}
+
+function normalizePurchasePayments(payments) {
+  return Array.isArray(payments)
+    ? payments
+        .map((payment) => ({
+          date: String(payment.date || new Date().toISOString().slice(0, 10)).slice(0, 10),
+          amount: Math.max(0, Number(payment.amount) || 0),
+          createdAt: String(payment.createdAt || payment.date || new Date().toISOString())
+        }))
+        .filter((payment) => payment.amount > 0)
+    : [];
+}
+
+function getPurchasePaymentTotal(payments) {
+  return normalizePurchasePayments(payments).reduce((total, payment) => total + Number(payment.amount || 0), 0);
+}
+
+function getPurchaseBalance(amount, payments) {
+  return Math.max(0, (Number(amount) || 0) - getPurchasePaymentTotal(payments));
+}
+
+function getPurchaseStatusLabel(purchase) {
+  return getPurchaseBalance(purchase?.amount, purchase?.payments) <= 0 ? "Paid" : "Unpaid";
+}
+
+function getPurchaseCreatedAt(purchase, index = 0) {
+  const directTimestamp = Date.parse(purchase?.createdAt || "");
+  if (!Number.isNaN(directTimestamp)) return new Date(directTimestamp).toISOString();
+  const idTimestamp = Number(String(purchase?.id || "").match(/PO-(\d+)/)?.[1]);
+  if (Number.isFinite(idTimestamp)) return new Date(idTimestamp).toISOString();
+  const dateTimestamp = Date.parse(purchase?.date || "");
+  if (!Number.isNaN(dateTimestamp)) return new Date(dateTimestamp).toISOString();
+  return new Date(Date.now() + index).toISOString();
+}
+
+function getPurchaseTimestamp(purchase) {
+  const timestamp = Date.parse(purchase?.createdAt || purchase?.date || "");
+  return Number.isNaN(timestamp) ? 0 : timestamp;
+}
+
+function formatPurchaseDate(value) {
+  const timestamp = Date.parse(value || "");
+  if (Number.isNaN(timestamp)) return "No date saved";
+  return new Date(timestamp).toLocaleString();
+}
+
+function getPurchaseDashboardTotals() {
+  return purchases.reduce(
+    (totals, purchase) => {
+      const amount = Number(purchase.amount) || 0;
+      const payments = getPurchasePaymentTotal(purchase.payments);
+      const balance = getPurchaseBalance(amount, purchase.payments);
+      totals.total += 1;
+      totals.amountTotal += amount;
+      totals.paymentTotal += payments;
+      totals.balanceDue += balance;
+      if (getPurchaseStatusLabel(purchase) === "Paid") totals.paid += 1;
+      else totals.unpaid += 1;
+      return totals;
+    },
+    { total: 0, paid: 0, unpaid: 0, amountTotal: 0, paymentTotal: 0, balanceDue: 0 }
+  );
+}
+
+function getReceiptDashboardCounts() {
+  return invoices.reduce(
+    (counts, invoice) => {
+      const status = getStatus(invoice);
+      counts.all += 1;
+      counts[status] = (counts[status] || 0) + 1;
+      return counts;
+    },
+    { all: 0, hold: 0, complete: 0, void: 0 }
+  );
 }
 
 function getStatus(invoice) {
@@ -271,6 +681,28 @@ function getCurrentPcDateTime() {
   return new Date().toLocaleString();
 }
 
+function getTodayInputDate() {
+  const date = new Date();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${date.getFullYear()}-${month}-${day}`;
+}
+
+function normalizeReportDate(value) {
+  const reportDate = String(value || "").trim();
+  return /^\d{4}-\d{2}-\d{2}$/.test(reportDate) ? reportDate : getTodayInputDate();
+}
+
+function getReportDateLocaleString(reportDate = selectedReportDate) {
+  const date = new Date(`${normalizeReportDate(reportDate)}T00:00:00`);
+  return Number.isNaN(date.getTime()) ? new Date().toLocaleDateString() : date.toLocaleDateString();
+}
+
+function isReportDate(value, reportDate = selectedReportDate) {
+  const date = new Date(value);
+  return !Number.isNaN(date.getTime()) && date.toLocaleDateString() === getReportDateLocaleString(reportDate);
+}
+
 function escapeHtml(value) {
   return String(value ?? "")
     .replace(/&/g, "&amp;")
@@ -292,15 +724,16 @@ function getAuditActor() {
 }
 
 els.invoiceList.addEventListener("click", (event) => {
-  const button = event.target.closest("[data-invoice-index]");
+  const button = event.target.closest("[data-record-index]");
   if (!button) return;
-  const invoice = getVisibleInvoices()[Number(button.dataset.invoiceIndex)];
-  selectedOrderNumber = invoice?.orderNumber || null;
-  renderInvoiceDetail(invoice);
+  const record = getVisibleDashboardRecords()[Number(button.dataset.recordIndex)];
+  selectedDashboardRecordKey = record ? getDashboardRecordKey(record) : null;
+  renderDashboardDetail(record);
 });
 els.invoiceDetail.addEventListener("click", async (event) => {
   const restoreButton = event.target.closest("[data-restore-order]");
   const deleteButton = event.target.closest("[data-delete-order]");
+  const openPurchaseButton = event.target.closest("[data-open-purchase]");
   const confirmButton = event.target.closest("#confirmDrawerStatus");
   const whatsappButton = event.target.closest("#sendEndOfDayWhatsapp");
 
@@ -314,6 +747,11 @@ els.invoiceDetail.addEventListener("click", async (event) => {
     return;
   }
 
+  if (openPurchaseButton) {
+    window.simplePOS.openPurchasing({ purchaseId: openPurchaseButton.dataset.openPurchase });
+    return;
+  }
+
   if (restoreButton) {
     if (restoreInProgress) return;
     if (!canRestoreHold()) {
@@ -323,7 +761,7 @@ els.invoiceDetail.addEventListener("click", async (event) => {
     restoreInProgress = true;
     restoreButton.disabled = true;
     restoreButton.textContent = "Restoring...";
-    selectedOrderNumber = null;
+    selectedDashboardRecordKey = null;
     const result = await window.simplePOS.restoreInvoice(restoreButton.dataset.restoreOrder, getAuditActor());
     if (result && result.ok === false) {
       window.alert(result.message || "Unable to restore this held bill.");
@@ -333,7 +771,7 @@ els.invoiceDetail.addEventListener("click", async (event) => {
   }
 
   if (deleteButton) {
-    selectedOrderNumber = null;
+    selectedDashboardRecordKey = null;
     await window.simplePOS.deleteInvoice(deleteButton.dataset.deleteOrder, getAuditActor());
     await loadReports();
   }
@@ -364,7 +802,36 @@ els.invoiceDetail.addEventListener("change", (event) => {
 els.endOfDayButton.addEventListener("click", () => {
   generateEndOfDayReport();
 });
+els.adminEndOfDayButton.addEventListener("click", () => {
+  openEndOfDayStartDialog();
+});
+els.auditLogButton.addEventListener("click", () => {
+  window.simplePOS.logAudit({ actor: getAuditActor(), action: "Opened Audit Log", details: "Audit Log window opened from Dashboard." });
+  window.simplePOS.openAuditLog();
+});
+els.reportFilterTabs.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-report-filter]");
+  if (!button) return;
+  activeReportFilter = button.dataset.reportFilter;
+  selectedDashboardRecordKey = null;
+  renderReportFilterTabs();
+  renderInvoices();
+});
+els.dashboardSearchInput.addEventListener("input", () => {
+  selectedDashboardRecordKey = null;
+  renderInvoices();
+});
 els.refreshReports.addEventListener("click", loadReports);
+els.openEndOfDayReport.addEventListener("click", () => {
+  selectedReportDate = normalizeReportDate(els.endOfDayReportDate.value);
+  els.endOfDayStartDialog.close();
+  window.simplePOS.openReporting({ mode: "eod", reportDate: selectedReportDate });
+});
+els.endOfDayReportDate.addEventListener("change", () => {
+  selectedReportDate = normalizeReportDate(els.endOfDayReportDate.value);
+  endOfDayGeneratedAt = getCurrentPcDateTime();
+  els.endOfDayStartBody.innerHTML = renderEndOfDayStartSummary();
+});
 els.confirmSendEndOfDayWhatsapp.addEventListener("click", async () => {
   if (!lastEndOfDaySummary) return;
   const actor = getAuditActor();
@@ -394,8 +861,11 @@ if (window.simplePOS) {
     settingsCache = settings;
     applyTheme(settings.themeGradient);
     invoices = Array.isArray(settings.invoices) ? settings.invoices : [];
+    purchases = normalizeDashboardPurchases(settings.purchases);
+    products = normalizeDashboardProducts(settings.products);
     voids = Array.isArray(settings.voids) ? settings.voids : [];
     renderSummary();
+    renderReportFilterTabs();
     renderInvoices();
   });
 }
@@ -426,6 +896,66 @@ function isAdminOwnerUser() {
   return values.some((value) => ["admin", "administrator", "owner"].includes(value));
 }
 
+function getReportEyebrow() {
+  const currentUser = getCurrentUser();
+  if (!currentUser) return "Staff";
+  if (isAdminOwnerUser()) return String(currentUser.name || currentUser.username || "Administrator").trim().toUpperCase();
+  return String(currentUser.name || currentUser.username || "Staff").trim().toUpperCase();
+}
+
+function openEndOfDayStartDialog() {
+  selectedReportDate = normalizeReportDate(selectedReportDate);
+  els.endOfDayReportDate.value = selectedReportDate;
+  endOfDayGeneratedAt = getCurrentPcDateTime();
+  els.endOfDayStartBody.innerHTML = renderEndOfDayStartSummary();
+  els.endOfDayStartDialog.showModal();
+}
+
+function renderEndOfDayStartSummary() {
+  const completedToday = invoices.filter(
+    (invoice) => getStatus(invoice) === "complete" && isReportDate(invoice.completedAt || invoice.savedAt || invoice.date)
+  );
+  const holdToday = invoices.filter(
+    (invoice) => getStatus(invoice) === "hold" && isReportDate(invoice.savedAt || invoice.date)
+  );
+  const voidInvoicesToday = invoices.filter(
+    (invoice) => getStatus(invoice) === "void" && isReportDate(invoice.voidedAt || invoice.completedAt || invoice.savedAt || invoice.date)
+  );
+  const totalSales = completedToday.reduce((sum, invoice) => sum + parseMoney(invoice.total), 0);
+  const cashierRows = renderMapSummaryRows(getTotalsBy(completedToday, getCashierLabel));
+  const paymentRows = renderMapSummaryRows(getTotalsBy(completedToday, (invoice) => invoice.paymentMethod || "Unknown"));
+  const orderNumbers = completedToday.map((invoice) => Number(invoice.orderNumber)).filter(Number.isFinite).sort((a, b) => a - b);
+  const orderRange = orderNumbers.length ? `#${orderNumbers[0]} through #${orderNumbers[orderNumbers.length - 1]}` : "No completed receipt numbers today.";
+
+  return `
+    <div class="eod-start-summary">
+      <div class="receipt-row"><span>Report Date</span><strong>${escapeHtml(endOfDayGeneratedAt)}</strong></div>
+      <div class="receipt-row"><span>Report Day</span><strong>${escapeHtml(getReportDateLocaleString())}</strong></div>
+      <div class="receipt-row"><span>Completed Receipts</span><strong>${completedToday.length}</strong></div>
+      <div class="receipt-row"><span>Total Sales</span><strong>${formatMoney(totalSales)}</strong></div>
+      <div class="receipt-row"><span>Receipt Range</span><strong>${escapeHtml(orderRange)}</strong></div>
+      <div class="receipt-row"><span>By Cashier</span><strong class="vertical-report-list">${cashierRows || "<span>No completed sales by user today.</span>"}</strong></div>
+      <div class="receipt-row"><span>By Payment</span><strong class="vertical-report-list">${paymentRows || "<span>No completed payments today.</span>"}</strong></div>
+      <div class="receipt-row"><span>Voids</span><strong>${voidInvoicesToday.length ? `${voidInvoicesToday.length} void(s)` : "No voids recorded."}</strong></div>
+      <div class="receipt-row"><span>Alert</span><strong>${holdToday.length ? `${holdToday.length} bill(s) still on hold.` : "No alerts recorded."}</strong></div>
+    </div>
+  `;
+}
+
+function getTotalsBy(receipts, labelGetter) {
+  return receipts.reduce((map, invoice) => {
+    const label = labelGetter(invoice);
+    map.set(label, (map.get(label) || 0) + parseMoney(invoice.total));
+    return map;
+  }, new Map());
+}
+
+function renderMapSummaryRows(map) {
+  return [...map.entries()]
+    .map(([label, total]) => `<span>${escapeHtml(label)}: ${formatMoney(total)}</span>`)
+    .join("");
+}
+
 function canRestoreHold() {
   const currentUser = getCurrentUser();
   if (currentUser?.role === "admin") return true;
@@ -435,9 +965,10 @@ function canRestoreHold() {
 function generateEndOfDayReport() {
   if (reportMode === "holds") return;
   endOfDayMode = true;
+  endOfDayBackupRequested = false;
   endOfDayGeneratedAt = getCurrentPcDateTime();
   els.endOfDayButton.textContent = "Generate End-of-Day Report";
-  selectedOrderNumber = null;
+  selectedDashboardRecordKey = null;
   if (reportMode !== "eod") renderInvoices();
   renderEndOfDayReport();
 }
@@ -450,17 +981,17 @@ function isAdminPassword(password) {
 
 function renderEndOfDayReport() {
   const completedToday = invoices.filter(
-    (invoice) => getStatus(invoice) === "complete" && isToday(invoice.completedAt || invoice.savedAt || invoice.date)
+    (invoice) => getStatus(invoice) === "complete" && isReportDate(invoice.completedAt || invoice.savedAt || invoice.date)
   );
   const holdToday = invoices.filter(
-    (invoice) => getStatus(invoice) === "hold" && isToday(invoice.savedAt || invoice.date)
+    (invoice) => getStatus(invoice) === "hold" && isReportDate(invoice.savedAt || invoice.date)
   );
   const voidInvoicesToday = invoices.filter(
-    (invoice) => getStatus(invoice) === "void" && isToday(invoice.voidedAt || invoice.completedAt || invoice.savedAt || invoice.date)
+    (invoice) => getStatus(invoice) === "void" && isReportDate(invoice.voidedAt || invoice.completedAt || invoice.savedAt || invoice.date)
   );
   const voidsToday = [
     ...voidInvoicesToday,
-    ...voids.filter((voidSale) => isToday(voidSale.voidedAt || voidSale.date))
+    ...voids.filter((voidSale) => isReportDate(voidSale.voidedAt || voidSale.date))
   ];
   const totalSales = completedToday.reduce((sum, invoice) => sum + parseMoney(invoice.total), 0);
   const paymentTotals = getPaymentTotals(completedToday);
@@ -479,6 +1010,7 @@ function renderEndOfDayReport() {
     <div class="end-of-day-grid">
       <div class="end-of-day-left">
         <div class="receipt-row"><span>Report Date</span><strong>${escapeHtml(endOfDayGeneratedAt || getCurrentPcDateTime())}</strong></div>
+        <div class="receipt-row"><span>Report Day</span><strong>${escapeHtml(getReportDateLocaleString())}</strong></div>
         <div class="receipt-row"><span>Total Sales</span><strong>${formatMoney(totalSales)}</strong></div>
         <label class="cash-confirmation-field">
           Payment Method to Confirm
@@ -749,6 +1281,10 @@ function openEndOfDaySummaryPreview() {
   }
   const summary = buildEndOfDaySummary();
   lastEndOfDaySummary = summary;
+  if (!endOfDayBackupRequested) {
+    endOfDayBackupRequested = true;
+    window.simplePOS.backupDatabase?.({ reason: "end-of-day-report" });
+  }
   els.endOfDaySummaryBody.innerHTML = renderEndOfDaySummary(summary);
   els.endOfDaySavedLocation.textContent = "";
   els.endOfDaySavedLocation.dataset.path = "";
@@ -767,6 +1303,7 @@ function buildEndOfDaySummary() {
   const overallStatus = methodRows.every((row) => row.status === "Balanced") ? "Balanced" : "Review Needed";
   const lines = [
     `Report Date: ${readRow("Report Date")}`,
+    `Report Day: ${readRow("Report Day")}`,
     `Total Sales: ${readRow("Total Sales")}`,
     `Completed Receipts: ${readRow("Completed Receipts")}`,
     `Receipt Range: ${readRow("Receipt Range")}`,

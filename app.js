@@ -1,5 +1,7 @@
 const SESSION_KEY = "beauty-pos-session";
 
+// Main POS renderer: handles login/setup, catalog browsing, current sale,
+// payment tendering, receipt completion, holds, discounts, and user switching.
 const defaultUsers = [
   { username: "admin", password: "admin123", name: "Administrator", role: "admin", discountLimit: 0 },
   { username: "staff", password: "staff123", name: "Staff Member", role: "staff", discountLimit: 0 }
@@ -26,6 +28,8 @@ const state = {
     whatsappNumber: "",
     taxRate: 0.0825,
     receiptPrintingEnabled: false,
+    saleCompleteEnterAction: "startNextSale",
+    ctrlEscShortcutEnabled: true,
     printerName: "",
     paperSize: "letter",
     silent: false,
@@ -59,6 +63,8 @@ const money = new Intl.NumberFormat("en-US", {
   style: "currency",
   currency: "USD"
 });
+
+let backupToastTimer = null;
 
 const els = {
   appShell: document.querySelector("#appShell"),
@@ -122,6 +128,7 @@ const els = {
   settingsButton: document.querySelector("#settingsButton"),
   managementButton: document.querySelector("#managementButton"),
   reportingButton: document.querySelector("#reportingButton"),
+  helpButton: document.querySelector("#helpButton"),
   heldReceiptsButton: document.querySelector("#heldReceiptsButton"),
   staffReportButton: document.querySelector("#staffReportButton"),
   switchUserButton: document.querySelector("#switchUserButton")
@@ -138,6 +145,26 @@ function formatPercent(value) {
 
 function parseMoney(value) {
   return Number(String(value || "0").replace(/[^0-9.-]+/g, "")) || 0;
+}
+
+function showBackupStatus(status) {
+  if (!status?.message) return;
+  let toast = document.querySelector("#databaseBackupToast");
+  if (!toast) {
+    toast = document.createElement("div");
+    toast.id = "databaseBackupToast";
+    toast.className = "backup-status-toast";
+    toast.setAttribute("role", "status");
+    document.body.appendChild(toast);
+  }
+  toast.textContent = status.message;
+  toast.classList.remove("is-hidden", "status-completed", "status-error");
+  toast.classList.toggle("status-completed", status.state === "completed");
+  toast.classList.toggle("status-error", status.state === "error");
+  window.clearTimeout(backupToastTimer);
+  backupToastTimer = window.setTimeout(() => {
+    toast.classList.add("is-hidden");
+  }, status.state === "started" ? 6000 : 10000);
 }
 
 function hasTenderedAmount() {
@@ -308,8 +335,37 @@ function getDiscountDraft() {
   };
 }
 
+// Receipt action buttons are driven by printer settings and the configured Enter-key default.
 function renderReceiptActions() {
   els.printReceipt.classList.toggle("is-hidden", !canUseReceiptPrinting());
+}
+
+function getSaleCompleteEnterAction() {
+  const action = String(state.settings.saleCompleteEnterAction || "").trim();
+  return ["startNextSale", "shareWhatsApp", "hold"].includes(action) ? action : "startNextSale";
+}
+
+function runSaleCompleteEnterAction() {
+  if (!els.receiptDialog.open || !state.lastReceipt) return;
+  const action = getSaleCompleteEnterAction();
+  if (action === "hold") {
+    holdLastReceipt();
+    return;
+  }
+  if (action === "shareWhatsApp") {
+    shareLastReceipt();
+    return;
+  }
+  startNextSale();
+}
+
+function focusSaleCompleteEnterAction() {
+  const action = getSaleCompleteEnterAction();
+  const target =
+    action === "hold" ? els.holdSale :
+    action === "shareWhatsApp" ? els.shareReceipt :
+    els.startNextSale;
+  window.setTimeout(() => target?.focus(), 0);
 }
 
 function canAccess(permissionName) {
@@ -354,6 +410,7 @@ function getTotals() {
   };
 }
 
+// Authentication workflow updates persisted session state and switches between login/register views.
 function setAuthenticatedUser(user) {
   state.currentUser = user ? {
     name: user.name,
@@ -366,8 +423,15 @@ function setAuthenticatedUser(user) {
   if (state.currentUser) renderRegister();
 }
 
+function closeOpenDialogs() {
+  document.querySelectorAll("dialog[open]").forEach((dialog) => {
+    dialog.close();
+  });
+}
+
 function switchUser() {
   const previousUser = state.currentUser;
+  closeOpenDialogs();
   resetSale();
   setAuthenticatedUser(null);
   if (previousUser && window.simplePOS) {
@@ -388,6 +452,39 @@ function getAuditActor() {
     : null;
 }
 
+function isCtrlLShortcut(event) {
+  return event.ctrlKey && !event.altKey && !event.shiftKey && (event.key?.toLowerCase() === "l" || event.code === "KeyL");
+}
+
+function isLoginScreenVisible() {
+  return !els.loginScreen.classList.contains("is-hidden") && els.setupScreen.classList.contains("is-hidden");
+}
+
+function isMainPosScreenVisible() {
+  return Boolean(state.currentUser) && !els.appShell.classList.contains("is-hidden");
+}
+
+// Ctrl+L workflow logs out from POS or confirms app close from login when enabled in Settings.
+function handleCtrlLShortcut(event) {
+  if (state.settings.ctrlEscShortcutEnabled === false) return;
+  if (!isLoginScreenVisible() && !isMainPosScreenVisible()) return;
+  event.preventDefault();
+  event.stopPropagation();
+
+  if (isMainPosScreenVisible()) {
+    switchUser();
+    return;
+  }
+
+  if (window.confirm("Ctrl+L will close the POS application. Close now?")) {
+    if (window.simplePOS?.closeApp) {
+      window.simplePOS.closeApp();
+    } else {
+      window.close();
+    }
+  }
+}
+
 function renderAuthState() {
   const signedIn = Boolean(state.currentUser);
   els.setupScreen.classList.add("is-hidden");
@@ -395,6 +492,8 @@ function renderAuthState() {
   els.appShell.classList.toggle("is-hidden", !signedIn);
   if (signedIn) {
     setLoginUserHintsVisible(false);
+  } else {
+    setTimeout(() => els.username.focus(), 0);
   }
 
   if (!signedIn) return;
@@ -563,11 +662,12 @@ function updateQuantity(productId, delta) {
 }
 
 function renderCategories() {
+  const catalogProducts = state.products.filter((product) => getProductStatus(product) !== "inactive");
   const categories = [
     "All",
     ...new Set([
       ...(Array.isArray(state.settings.categories) ? state.settings.categories : []),
-      ...state.products.map((product) => product.category)
+      ...catalogProducts.map((product) => product.category)
     ])
   ];
 
@@ -582,11 +682,14 @@ function renderCategories() {
 function renderProducts() {
   const searchTerm = els.productSearch.value.trim().toLowerCase();
   const visibleProducts = state.products.filter((product) => {
+    if (getProductStatus(product) === "inactive") return false;
     const matchesCategory =
       state.activeCategory === "All" || product.category === state.activeCategory;
     const matchesSearch =
       product.name.toLowerCase().includes(searchTerm) ||
-      product.id.toLowerCase().includes(searchTerm);
+      product.id.toLowerCase().includes(searchTerm) ||
+      String(product.sku || "").toLowerCase().includes(searchTerm) ||
+      String(product.barcode || "").toLowerCase().includes(searchTerm);
     return matchesCategory && matchesSearch;
   });
 
@@ -597,6 +700,7 @@ function renderProducts() {
           <span class="product-card-topline">
             <span class="product-code">${escapeHtml(product.id)} - ${escapeHtml(product.category)}</span>
             ${isNewStatusActive(product) ? `<span class="minor-status-badge product-status-badge">NEW!</span>` : ""}
+            ${getProductStatus(product) === "promotion" ? `<span class="product-promotion-badge catalog-promotion-badge">PROMO</span>` : ""}
           </span>
           <strong>${escapeHtml(product.name)}</strong>
           <span class="product-price">${formatMoney(product.price)}</span>
@@ -604,6 +708,11 @@ function renderProducts() {
       `
     )
     .join("");
+}
+
+function getProductStatus(product) {
+  const status = String(product?.status || "active").trim().toLowerCase();
+  return ["active", "inactive", "promotion"].includes(status) ? status : "active";
 }
 
 function isNewStatusActive(product) {
@@ -619,6 +728,7 @@ function getNewItemBadgeHours() {
   return Number.isFinite(hours) && hours >= 1 ? Math.floor(hours) : 24;
 }
 
+// Cart renderer recalculates sale totals, tax, discount, change due, and checkout button state.
 function renderCart() {
   const cartItems = [...state.cart.values()];
   const totals = getTotals();
@@ -708,6 +818,7 @@ async function getReceiptOrderNumber() {
   return state.orderNumber++;
 }
 
+// Complete Sale workflow builds a receipt, reserves order number, and opens receipt actions.
 async function completeSale() {
   els.completeSale.disabled = true;
   const orderNumber = await getReceiptOrderNumber();
@@ -743,12 +854,14 @@ async function completeSale() {
 
   renderReceiptActions();
   els.receiptDialog.showModal();
+  focusSaleCompleteEnterAction();
   if (window.simplePOS) {
     state.invoiceSavePromise = window.simplePOS.saveInvoice(state.lastReceipt);
   }
   resetSale();
 }
 
+// Hold workflow saves the open receipt as Hold so it can be restored later.
 async function holdLastReceipt() {
   if (!state.lastReceipt) return;
   if (state.invoiceSavePromise) {
@@ -919,7 +1032,9 @@ function restoreInvoice(invoice) {
         name: item.name,
         category: item.category || "Restored",
         price: Number(item.price || 0),
-        taxable: item.taxable !== false
+        taxable: item.taxable !== false,
+        status: "active",
+        note: ""
       };
     state.cart.set(product.id, {
       product,
@@ -931,8 +1046,10 @@ function restoreInvoice(invoice) {
   renderCategories();
   renderProducts();
   renderCart();
+  focusTenderedAmount();
 }
 
+// Button, keyboard, dialog, and workflow wiring for the main POS window.
 els.loginForm.addEventListener("submit", (event) => {
   event.preventDefault();
   handleLogin();
@@ -942,6 +1059,10 @@ els.adminSetupForm.addEventListener("submit", handleAdminSetup);
 els.backToBusinessSetup.addEventListener("click", () => showSetupScreen("business"));
 
 window.addEventListener("keydown", (event) => {
+  if (isCtrlLShortcut(event)) {
+    handleCtrlLShortcut(event);
+    return;
+  }
   if (isCredentialHintShortcut(event)) {
     event.preventDefault();
     setLoginUserHintsVisible(true);
@@ -1063,6 +1184,18 @@ els.holdSale.addEventListener("click", holdLastReceipt);
 els.printReceipt.addEventListener("click", printLastReceipt);
 els.shareReceipt.addEventListener("click", shareLastReceipt);
 els.startNextSale.addEventListener("click", startNextSale);
+els.receiptDialog.addEventListener("keydown", (event) => {
+  if (event.key !== "Enter") return;
+  event.preventDefault();
+  event.stopPropagation();
+  runSaleCompleteEnterAction();
+});
+els.receiptDialog.addEventListener("cancel", (event) => {
+  if (!state.lastReceipt) return;
+  event.preventDefault();
+  window.alert(`Receipt #${state.lastReceipt.orderNumber} will be placed on Hold because Esc was pressed on the Complete Sale window.`);
+  holdLastReceipt();
+});
 els.receiptDialog.addEventListener("close", async () => {
   if (!state.lastReceipt?.restoredBill || state.lastReceipt.status !== "hold") return;
   if (window.simplePOS) {
@@ -1089,6 +1222,13 @@ els.reportingButton.addEventListener("click", () => {
     window.simplePOS.logAudit({ actor: getAuditActor(), action: "Opened Reporting", details: "Reporting window opened." });
     window.simplePOS.openReporting();
   }
+});
+
+document.addEventListener("click", (event) => {
+  const helpButton = event.target.closest("[data-open-help]");
+  if (!helpButton) return;
+  event.preventDefault();
+  window.simplePOS?.openHelp?.();
 });
 
 els.heldReceiptsButton.addEventListener("click", () => {
@@ -1137,6 +1277,14 @@ if (window.simplePOS) {
   window.simplePOS.onInvoiceRestore((invoice) => {
     restoreInvoice(invoice);
   });
+  window.simplePOS.onDatabaseBackupStatus(showBackupStatus);
+  window.simplePOS.onLogoutRequested(() => {
+    if (state.currentUser) {
+      switchUser();
+    } else {
+      renderAuthState();
+    }
+  });
 }
 
 function insertDecimalAtCursor(input) {
@@ -1156,6 +1304,7 @@ async function init() {
     return;
   }
   renderAuthState();
+  if (isLoginScreenVisible()) setTimeout(() => els.username.focus(), 0);
 }
 
 init();

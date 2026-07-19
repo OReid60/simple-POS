@@ -10,67 +10,77 @@
     <main class="settings-window app-settings-window">
       <header class="settings-window-header">
         <p class="eyebrow">Administrator</p>
-        <h1>Settings</h1>
+        <div class="settings-header-row">
+          <h1>Settings</h1>
+          <div class="section-title-actions is-hidden" id="layoutActionButtons">
+            <button class="secondary-button" id="toggleLayoutEdit" type="button">Edit Layout</button>
+            <button class="secondary-button" id="resetLayout" type="button">Reset Layout</button>
+          </div>
+          <button class="secondary-button" type="button" data-open-help data-help-topic="settings">Help</button>
+        </div>
       </header>
 
       <form id="settingsForm" class="settings-form">
-        <section class="settings-section settings-section-business">
+        <!-- Business section: receipt/header identity, logo, theme, WhatsApp, and hold timer controls. -->
+        <section class="settings-section settings-section-business" data-layout-section="business" data-layout-title="Business">
           <h2>Business</h2>
-          <label>
-            Business name
-            <input id="businessNameInput" type="text" placeholder="Business name" required>
-          </label>
-          <label>
-            Business address
-            <input id="businessAddressInput" type="text" placeholder="123 Beauty Ave">
-          </label>
-          <div class="logo-picker-group">
-            <span>Business logo</span>
-            <label class="logo-upload-tile" for="businessLogoInput">
-              <input id="businessLogoInput" type="file" accept="image/*">
-              <img id="businessLogoPreview" alt="Business logo preview">
-              <span id="businessLogoPlaceholder">Select Logo</span>
-            </label>
-            <button class="secondary-button" id="clearBusinessLogo" type="button">Clear Logo</button>
+          <div class="business-layout-grid" id="businessLayoutGrid">
+            <div class="business-layout-item" data-business-layout-item="name" data-business-layout-title="Business name">
+              <label>
+                Business name
+                <input id="businessNameInput" type="text" placeholder="Business name" required>
+              </label>
+            </div>
+            <div class="business-layout-item" data-business-layout-item="address" data-business-layout-title="Business address">
+              <label>
+                Business address
+                <input id="businessAddressInput" type="text" placeholder="123 Beauty Ave">
+              </label>
+            </div>
+            <div class="business-layout-item" data-business-layout-item="logo" data-business-layout-title="Business logo">
+              <div class="logo-picker-group">
+                <span>Business logo</span>
+                <label class="logo-upload-tile" for="businessLogoInput">
+                  <input id="businessLogoInput" type="file" accept="image/*">
+                  <img id="businessLogoPreview" alt="Business logo preview">
+                  <span id="businessLogoPlaceholder">Select Logo</span>
+                </label>
+                <button class="secondary-button" id="clearBusinessLogo" type="button">Clear Logo</button>
+              </div>
+            </div>
+            <div class="business-layout-item" data-business-layout-item="whatsapp" data-business-layout-title="WhatsApp number">
+              <label>
+                WhatsApp number
+                <input id="whatsappNumber" type="tel" placeholder="15551234567">
+              </label>
+            </div>
+            <div class="business-layout-item" data-business-layout-item="theme" data-business-layout-title="Window theme">
+              <label>
+                Window gradient
+                <select id="themeGradient">
+                  <option value="lotus">Lotus Glow</option>
+                  <option value="emerald">Emerald Blush</option>
+                  <option value="rose">Rose Gold</option>
+                  <option value="blue">Blue Spa</option>
+                  <option value="gold">Soft Gold</option>
+                  <option value="neutral">Clean Neutral</option>
+                </select>
+              </label>
+            </div>
+            <div class="business-layout-item" data-business-layout-item="holdTimer" data-business-layout-title="Held bill timer">
+              <label class="checkbox-row">
+                <input id="holdRetentionEnabled" type="checkbox">
+                Enable held bill save timer
+              </label>
+              <label>
+                Held bill save time (hours)
+                <input id="holdRetentionHours" type="number" min="1" step="1" placeholder="24">
+              </label>
+            </div>
           </div>
-          <label>
-            WhatsApp number
-            <input id="whatsappNumber" type="tel" placeholder="15551234567">
-          </label>
-          <label class="checkbox-row">
-            <input id="holdRetentionEnabled" type="checkbox">
-            Enable held bill save timer
-          </label>
-          <label>
-            Held bill save time (hours)
-            <input id="holdRetentionHours" type="number" min="1" step="1" placeholder="24">
-          </label>
-          <label class="checkbox-row">
-            <input id="newItemBadgeTimerEnabled" type="checkbox">
-            Enable New item badge timer
-          </label>
-          <label>
-            New item badge time (hours)
-            <input id="newItemBadgeHours" type="number" min="1" step="1" placeholder="24">
-          </label>
         </section>
 
-        <section class="settings-section settings-section-theme">
-          <h2>Theme</h2>
-          <label>
-            Window gradient
-            <select id="themeGradient">
-              <option value="lotus">Lotus Glow</option>
-              <option value="emerald">Emerald Blush</option>
-              <option value="rose">Rose Gold</option>
-              <option value="blue">Blue Spa</option>
-              <option value="gold">Soft Gold</option>
-              <option value="neutral">Clean Neutral</option>
-            </select>
-          </label>
-        </section>
-
-        <section class="settings-section settings-section-payments">
+        <section class="settings-section settings-section-payments" data-layout-section="payments" data-layout-title="Payment Methods">
           <div class="section-title-row">
             <h2>Payment Methods</h2>
             <button class="secondary-button" id="addPaymentMethod" type="button">Add Method</button>
@@ -82,40 +92,82 @@
           <div class="payment-method-list" id="paymentMethodList"></div>
         </section>
 
-        <section class="settings-section settings-section-users">
-          <div class="section-title-row">
-            <h2>User Accounts</h2>
-            <div class="section-title-actions">
-              <button class="secondary-button" id="openAuditLog" type="button">Audit Log</button>
-              <button class="secondary-button" id="addUser" type="button">Add User</button>
+        <!-- Inventory section: optional item fields and New item badge timer controls. -->
+        <section class="settings-section settings-section-inventory" data-layout-section="inventory" data-layout-title="Inventory">
+          <h2>Inventory</h2>
+          <label class="checkbox-row">
+            <input id="newItemBadgeTimerEnabled" type="checkbox">
+            Enable New item badge timer
+          </label>
+          <label>
+            New item badge time (hours)
+            <input id="newItemBadgeHours" type="number" min="1" step="1" placeholder="24">
+          </label>
+          <label class="checkbox-row">
+            <input id="inventoryShowSku" type="checkbox">
+            Enable SKU
+          </label>
+          <label class="checkbox-row">
+            <input id="inventoryShowBarcode" type="checkbox">
+            Enable Barcode
+          </label>
+          <label class="checkbox-row">
+            <input id="inventoryShowReorderAt" type="checkbox">
+            Enable Reorder At
+          </label>
+          <label class="checkbox-row">
+            <input id="inventoryShowNote" type="checkbox">
+            Enable Item Note
+          </label>
+          <label class="checkbox-row">
+            <input id="inventoryShowAdjustmentReason" type="checkbox">
+            Enable Stock Adjustment Reason
+          </label>
+        </section>
+
+        <!-- User Account section: staff/admin accounts, permissions, and logout shortcut toggle. -->
+        <section class="settings-section settings-section-staff" data-layout-section="staff" data-layout-title="User Account">
+          <div class="collapsible-section-header">
+            <h2>User Account</h2>
+            <div class="collapsible-section-header-actions">
+              <button class="secondary-button" id="toggleStaffSection" type="button" aria-expanded="false" aria-controls="staffSectionBody">Expand</button>
             </div>
           </div>
-          <p class="settings-note settings-note-success">If a password is forgotten, hold Ctrl+0 on the login screen to briefly show the configured usernames and passwords.</p>
-          <div class="user-list" id="userList"></div>
+          <div class="collapsible-section-body is-hidden" id="staffSectionBody">
+            <div class="section-title-row">
+              <span></span>
+              <div class="section-title-actions">
+                <button class="secondary-button" id="addUser" type="button">Add User</button>
+              </div>
+            </div>
+            <p class="settings-note settings-note-success">If a password is forgotten, hold Ctrl+0 on the login screen to briefly show the configured usernames and passwords.</p>
+            <div class="user-list" id="userList"></div>
+            <h3 class="settings-subsection-title">Staff Access</h3>
+            <label class="checkbox-row">
+              <input id="staffCanAccessSettings" type="checkbox">
+              Access Settings
+            </label>
+            <label class="checkbox-row">
+              <input id="staffCanAccessManagement" type="checkbox">
+              Access Inventory
+            </label>
+            <label class="checkbox-row">
+              <input id="staffCanAccessReporting" type="checkbox">
+              Access Reporting
+            </label>
+            <label class="checkbox-row">
+              <input id="staffCanRestoreHolds" type="checkbox">
+              Allow staff to restore held receipts without administrator password
+            </label>
+            <label class="checkbox-row">
+              <input id="ctrlEscShortcutEnabled" type="checkbox">
+              Enable Ctrl+L shortcut for logout and login-screen close prompt
+            </label>
+          </div>
         </section>
 
-        <section class="settings-section settings-section-roles">
-          <h2>Staff Access</h2>
-          <label class="checkbox-row">
-            <input id="staffCanAccessSettings" type="checkbox">
-            Access Settings
-          </label>
-          <label class="checkbox-row">
-            <input id="staffCanAccessManagement" type="checkbox">
-            Access Inventory
-          </label>
-          <label class="checkbox-row">
-            <input id="staffCanAccessReporting" type="checkbox">
-            Access Reporting
-          </label>
-          <label class="checkbox-row">
-            <input id="staffCanRestoreHolds" type="checkbox">
-            Allow staff to restore held receipts without administrator password
-          </label>
-        </section>
-
-        <section class="settings-section settings-section-receipt">
-          <h2>Receipt Printing</h2>
+        <section class="settings-section settings-section-receipt" data-layout-section="receipt" data-layout-title="Printer Settings">
+          <h2>Printer Settings</h2>
           <label class="checkbox-row">
             <input id="receiptPrintingEnabled" type="checkbox">
             Enable receipt printing
@@ -136,17 +188,58 @@
             <input id="silentPrint" type="checkbox">
             Print without showing the system print dialog
           </label>
-          <p class="settings-note" id="printerStatus"></p>
+          <label>
+            Sale Complete Enter key
+            <select id="saleCompleteEnterAction">
+              <option value="startNextSale">Start Next Sale</option>
+              <option value="shareWhatsApp">WhatsApp</option>
+              <option value="hold">Hold</option>
+            </select>
+          </label>
+          <button class="secondary-button printer-refresh-button" id="refreshPrinters" type="button">Refresh Printers</button>
+          <p class="settings-note printer-status-message" id="printerStatus"></p>
         </section>
 
-        <div class="settings-actions settings-section-actions">
-          <button class="secondary-button" id="refreshPrinters" type="button">Refresh Printers</button>
+        <!-- Database Mode section: Host/Client database configuration, locked until Ctrl+1. -->
+        <section class="settings-section settings-section-database" data-layout-section="database" data-layout-title="Database Mode">
+          <div class="collapsible-section-header">
+            <h2>Database Mode</h2>
+            <div class="collapsible-section-header-actions">
+              <button class="secondary-button" id="toggleDatabaseSection" type="button" aria-expanded="false" aria-controls="databaseModeBody">Expand</button>
+            </div>
+          </div>
+          <div class="collapsible-section-body is-hidden" id="databaseModeBody">
+            <p class="settings-note">Host/Client mode is locked for this PC. Press Ctrl+1 in this Settings window to unlock changes.</p>
+            <div class="database-mode-options">
+              <label class="checkbox-row">
+                <input id="databaseModeHost" name="databaseMode" type="radio" value="host">
+                Host PC
+              </label>
+              <label class="checkbox-row">
+                <input id="databaseModeClient" name="databaseMode" type="radio" value="client">
+                Client PC
+              </label>
+            </div>
+            <label>
+              Database path
+              <input id="databasePath" type="text" readonly>
+            </label>
+            <div class="settings-actions database-actions">
+              <button class="secondary-button" id="browseDatabasePath" type="button">Browse</button>
+              <button class="checkout-button" id="applyDatabaseMode" type="button">Apply Database Mode</button>
+            </div>
+            <p class="settings-note" id="databaseStatus" role="status"></p>
+          </div>
+        </section>
+
+        <div class="settings-actions settings-floating-actions">
           <button class="checkout-button" type="submit">Save Settings</button>
         </div>
         <p class="settings-note" id="saveStatus" role="status"></p>
       </form>
     </main>
 
+    <script src="window-shortcuts.js"></script>
     <script src="settings.js"></script>
   </body>
 </html>

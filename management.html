@@ -10,43 +10,59 @@
     <main class="settings-window management-window">
       <header class="settings-window-header">
         <p class="eyebrow">Administrator</p>
-        <h1>Inventory</h1>
+        <div class="settings-header-row">
+          <h1>Inventory</h1>
+          <button class="secondary-button" type="button" data-open-help data-help-topic="inventory">Help</button>
+        </div>
       </header>
 
       <form id="managementForm" class="settings-form">
+        <!-- Categories section: categorizes catalog items and starts collapsed for a cleaner admin view. -->
         <section class="settings-section">
           <div class="section-title-row">
             <h2>Categories</h2>
+            <button class="secondary-button" id="toggleCategoriesSection" type="button" aria-expanded="false" aria-controls="categoriesSectionBody">Expand</button>
           </div>
-          <div class="category-manager">
-            <input id="newCategoryName" type="text" placeholder="New category name">
-            <button class="secondary-button" id="addCategory" type="button">Add Category</button>
+          <div id="categoriesSectionBody" class="is-hidden">
+            <div class="category-manager">
+              <input id="newCategoryName" type="text" placeholder="New category name">
+              <button class="secondary-button" id="addCategory" type="button">Add Category</button>
+            </div>
+            <div class="managed-category-list" id="categoryList"></div>
           </div>
-          <div class="managed-category-list" id="categoryList"></div>
         </section>
 
+        <!-- Status Catalog section: controls the Status dropdown available on inventory item rows. -->
+        <section class="settings-section">
+          <div class="section-title-row">
+            <h2>Status Catalog</h2>
+            <button class="secondary-button" id="toggleStatusesSection" type="button" aria-expanded="false" aria-controls="statusesSectionBody">Expand</button>
+          </div>
+          <div id="statusesSectionBody" class="is-hidden">
+            <div class="category-manager">
+              <input id="newStatusName" type="text" placeholder="New item status">
+              <button class="secondary-button" id="addStatus" type="button">Add Status</button>
+            </div>
+            <div class="managed-category-list" id="statusList"></div>
+          </div>
+        </section>
+
+        <!-- Inventory section: item rows, Purchase Order launch, and Add Item workflow. -->
         <section class="settings-section">
           <div class="section-title-row">
             <h2>Inventory</h2>
             <div class="section-title-actions">
-              <button class="secondary-button" id="inventoryImportExport" type="button">Import/Export</button>
+              <button class="secondary-button is-hidden" id="inventoryImportExport" type="button">Import/Export</button>
+              <button class="secondary-button" id="openPurchaseBill" type="button">Purchase Order</button>
               <button class="secondary-button" id="addInventoryItem" type="button">Add Item</button>
             </div>
           </div>
           <div class="inventory-list" id="inventoryList"></div>
         </section>
 
-        <section class="settings-section">
-          <div class="section-title-row">
-            <h2>Purchasing / Company Bills</h2>
-            <button class="secondary-button" id="addPurchaseBill" type="button">Add Bill</button>
-          </div>
-          <div class="purchase-list" id="purchaseList"></div>
-        </section>
-
         <div class="settings-actions">
           <button class="secondary-button" id="reloadInventory" type="button">Reload</button>
-          <button class="checkout-button" type="submit">Save Inventory & Purchasing</button>
+          <button class="checkout-button" type="submit">Save Inventory</button>
         </div>
         <p class="settings-note" id="saveStatus" role="status"></p>
       </form>
@@ -74,6 +90,7 @@
       </div>
     </dialog>
 
+    <script src="window-shortcuts.js"></script>
     <script src="management.js"></script>
   </body>
 </html>

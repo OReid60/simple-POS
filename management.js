@@ -1,10 +1,20 @@
+// Inventory module: manages category catalogs, item status catalogs, item rows,
+// supplier purchase entry points, and Inventory save/import workflows.
 const els = {
   form: document.querySelector("#managementForm"),
   categoryList: document.querySelector("#categoryList"),
   newCategoryName: document.querySelector("#newCategoryName"),
   addCategory: document.querySelector("#addCategory"),
+  toggleCategoriesSection: document.querySelector("#toggleCategoriesSection"),
+  categoriesSectionBody: document.querySelector("#categoriesSectionBody"),
+  statusList: document.querySelector("#statusList"),
+  newStatusName: document.querySelector("#newStatusName"),
+  addStatus: document.querySelector("#addStatus"),
+  toggleStatusesSection: document.querySelector("#toggleStatusesSection"),
+  statusesSectionBody: document.querySelector("#statusesSectionBody"),
   inventoryList: document.querySelector("#inventoryList"),
   addInventoryItem: document.querySelector("#addInventoryItem"),
+  openPurchaseBill: document.querySelector("#openPurchaseBill"),
   inventoryImportExport: document.querySelector("#inventoryImportExport"),
   importExportDialog: document.querySelector("#importExportDialog"),
   inventoryTemplate: document.querySelector("#inventoryTemplate"),
@@ -19,9 +29,21 @@ const els = {
 
 let currentSettings = {
   categories: [],
+  productStatuses: [],
   products: [],
-  purchases: []
+  purchases: [],
+  inventoryFieldVisibility: {
+    sku: true,
+    barcode: true,
+    reorderAt: false,
+    note: true,
+    adjustmentReason: true
+  }
 };
+
+const defaultProductStatuses = ["active", "inactive", "promotion"];
+let categoriesSectionCollapsed = true;
+let statusesSectionCollapsed = true;
 
 function normalizeThemeGradient(themeGradient) {
   return ["lotus", "emerald", "rose", "blue", "gold", "neutral"].includes(themeGradient) ? themeGradient : "lotus";
@@ -35,11 +57,13 @@ async function loadManagement() {
   currentSettings = await window.simplePOS.getSettings();
   applyTheme(currentSettings.themeGradient);
   currentSettings.categories = normalizeCategories(currentSettings.categories);
+  currentSettings.productStatuses = normalizeProductStatuses(currentSettings.productStatuses);
   currentSettings.products = Array.isArray(currentSettings.products)
-    ? currentSettings.products
+    ? currentSettings.products.map(normalizeProduct)
     : [];
   currentSettings.purchases = normalizePurchases(currentSettings.purchases);
   renderCategories();
+  renderStatuses();
   renderInventory();
   renderPurchases();
 }
@@ -62,19 +86,128 @@ function normalizeCategories(categories) {
   return [...new Set(source.map((category) => String(category || "").trim()).filter(Boolean))];
 }
 
+// Status values are stored as stable lowercase keys for saving and dropdown matching.
+function normalizeStatusValue(status) {
+  return String(status || "").trim().toLowerCase().replace(/\s+/g, "-");
+}
+
+function normalizeProductStatuses(statuses) {
+  const source = Array.isArray(statuses) ? statuses : [];
+  const values = [...defaultProductStatuses, ...source.map(normalizeStatusValue)]
+    .filter(Boolean)
+    .filter((status, index, list) => list.indexOf(status) === index);
+  return values.length ? values : [...defaultProductStatuses];
+}
+
+function normalizeProduct(product, index = 0) {
+  const status = normalizeProductStatus(product?.status);
+  return {
+    id: String(product?.id || `ITEM-${index + 1}`).trim(),
+    name: String(product?.name || "Unnamed Item").trim(),
+    category: String(product?.category || currentSettings.categories[0] || "General").trim(),
+    sku: String(product?.sku || "").trim(),
+    barcode: String(product?.barcode || "").trim(),
+    price: Number(product?.price) || 0,
+    stock: Number(product?.stock) || 0,
+    reorderLevel: Math.max(0, Number(product?.reorderLevel) || 0),
+    taxable: product?.taxable !== false,
+    status,
+    note: String(product?.note || "").trim(),
+    adjustmentReason: String(product?.adjustmentReason || "").trim(),
+    minorStatus: product?.minorStatus === "new" ? "new" : "",
+    minorStatusAt: String(product?.minorStatusAt || ""),
+    isNew: product?.isNew === true
+  };
+}
+
+function normalizeProductStatus(status) {
+  const value = normalizeStatusValue(status || "active");
+  return normalizeProductStatuses(currentSettings.productStatuses).includes(value) ? value : "active";
+}
+
+function getInventoryFieldVisibility() {
+  const visibility = currentSettings.inventoryFieldVisibility && typeof currentSettings.inventoryFieldVisibility === "object"
+    ? currentSettings.inventoryFieldVisibility
+    : {};
+  return {
+    sku: visibility.sku !== false,
+    barcode: visibility.barcode !== false,
+    reorderAt: visibility.reorderAt === true,
+    note: visibility.note !== false,
+    adjustmentReason: visibility.adjustmentReason !== false
+  };
+}
+
+function renderProductStatusOptions(selectedStatus) {
+  return normalizeProductStatuses(currentSettings.productStatuses)
+    .map((status) => `<option value="${status}" ${normalizeProductStatus(selectedStatus) === status ? "selected" : ""}>${escapeHtml(toTitleCase(status))}</option>`)
+    .join("");
+}
+
+function toTitleCase(value) {
+  return String(value || "").replace(/-/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
 function normalizePurchases(purchases) {
   return Array.isArray(purchases)
-    ? purchases.map((purchase, index) => ({
-        id: String(purchase.id || `PO-${Date.now()}-${index}`).trim(),
-        company: String(purchase.company || "").trim(),
-        billNumber: String(purchase.billNumber || "").trim(),
-        date: String(purchase.date || new Date().toISOString().slice(0, 10)).slice(0, 10),
-        notes: String(purchase.notes || "").trim(),
-        amount: Number(purchase.amount) || 0,
-        paid: purchase.paid === true,
-        addedToInventory: purchase.addedToInventory === true,
-        items: normalizePurchaseItems(purchase.items)
-      }))
+    ? purchases.map((purchase, index) => {
+        const payments = normalizePurchasePayments(purchase.payments);
+        const amount = Number(purchase.amount) || 0;
+        const balance = Math.max(0, amount - payments.reduce((sum, payment) => sum + payment.amount, 0));
+        const createdAt = getPurchaseCreatedAt(purchase, index);
+        return {
+          id: String(purchase.id || `PO-${Date.now()}-${index}`).trim(),
+          company: String(purchase.company || "").trim(),
+          billNumber: String(purchase.billNumber || "").trim(),
+          date: String(purchase.date || new Date().toISOString().slice(0, 10)).slice(0, 10),
+          createdAt,
+          notes: String(purchase.notes || "").trim(),
+          amount,
+          payments,
+          paid: balance <= 0,
+          addedToInventory: purchase.addedToInventory === true,
+          appliedInventoryItems: normalizeAppliedInventoryItems(purchase.appliedInventoryItems),
+          items: normalizePurchaseItems(purchase.items)
+        };
+      })
+    : [];
+}
+
+function getPurchaseCreatedAt(purchase, index = 0) {
+  const directTimestamp = Date.parse(purchase?.createdAt || "");
+  if (!Number.isNaN(directTimestamp)) return new Date(directTimestamp).toISOString();
+  const idTimestamp = Number(String(purchase?.id || "").match(/PO-(\d+)/)?.[1]);
+  if (Number.isFinite(idTimestamp)) return new Date(idTimestamp).toISOString();
+  const dateTimestamp = Date.parse(purchase?.date || "");
+  if (!Number.isNaN(dateTimestamp)) return new Date(dateTimestamp).toISOString();
+  return new Date(Date.now() + index).toISOString();
+}
+
+function normalizeAppliedInventoryItems(items) {
+  return Array.isArray(items)
+    ? items
+        .map((item) => ({
+          productId: String(item.productId || "").trim(),
+          productName: String(item.productName || "").trim(),
+          quantity: Number(item.quantity) || 0,
+          priceBefore: Number(item.priceBefore) || 0,
+          priceAfter: Number(item.priceAfter) || 0,
+          priceChanged: item.priceChanged === true,
+          createdProduct: item.createdProduct === true
+        }))
+        .filter((item) => item.productId || item.productName || item.quantity)
+    : [];
+}
+
+function normalizePurchasePayments(payments) {
+  return Array.isArray(payments)
+    ? payments
+        .map((payment) => ({
+          date: String(payment.date || new Date().toISOString().slice(0, 10)).slice(0, 10),
+          amount: Math.max(0, Number(payment.amount) || 0),
+          createdAt: String(payment.createdAt || payment.date || new Date().toISOString())
+        }))
+        .filter((payment) => payment.amount > 0)
     : [];
 }
 
@@ -108,7 +241,45 @@ function renderCategories() {
     .join("");
 }
 
+// Status Catalog protects built-in statuses and only shows delete for custom statuses.
+function renderStatuses() {
+  currentSettings.productStatuses = normalizeProductStatuses(currentSettings.productStatuses);
+  const defaultStatusSet = new Set(defaultProductStatuses);
+  els.statusList.innerHTML = currentSettings.productStatuses
+    .map((status, index) => {
+      const isDefault = defaultStatusSet.has(status);
+      return `
+        <div class="managed-category">
+          <span>${escapeHtml(toTitleCase(status))}</span>
+          ${isDefault ? "" : `
+            <button class="icon-button danger-button" type="button" data-remove-status="${index}" aria-label="Remove ${escapeAttribute(toTitleCase(status))}">
+              <span aria-hidden="true">x</span>
+            </button>
+          `}
+        </div>
+      `;
+    })
+    .join("");
+}
+
+// Collapse controllers keep setup catalogs tucked away until an admin needs them.
+function setCategoriesSectionCollapsed(collapsed) {
+  categoriesSectionCollapsed = collapsed;
+  els.categoriesSectionBody.classList.toggle("is-hidden", categoriesSectionCollapsed);
+  els.toggleCategoriesSection.textContent = categoriesSectionCollapsed ? "Expand" : "Collapse";
+  els.toggleCategoriesSection.setAttribute("aria-expanded", String(!categoriesSectionCollapsed));
+}
+
+function setStatusesSectionCollapsed(collapsed) {
+  statusesSectionCollapsed = collapsed;
+  els.statusesSectionBody.classList.toggle("is-hidden", statusesSectionCollapsed);
+  els.toggleStatusesSection.textContent = statusesSectionCollapsed ? "Expand" : "Collapse";
+  els.toggleStatusesSection.setAttribute("aria-expanded", String(!statusesSectionCollapsed));
+}
+
+// Main Inventory renderer: builds editable item rows from saved settings and field toggles.
 function renderInventory() {
+  const fieldVisibility = getInventoryFieldVisibility();
   const categoryOptions = currentSettings.categories
     .map((category) => `<option value="${escapeAttribute(category)}">${escapeHtml(category)}</option>`)
     .join("");
@@ -116,41 +287,84 @@ function renderInventory() {
   els.inventoryList.innerHTML = currentSettings.products
     .map(
       (product, index) => {
-        const isNew = product.isNew === true;
+        const normalizedProduct = normalizeProduct(product, index);
+        const isNew = normalizedProduct.isNew === true;
+        const isInactive = normalizedProduct.status === "inactive";
+        const isLocked = isInactive && !isNew;
+        const fieldLock = isLocked ? "disabled" : "";
         return `
-        <div class="inventory-row management-row" data-index="${index}">
+        <div class="inventory-row management-row ${isInactive ? "is-inactive" : ""} ${normalizedProduct.status === "promotion" ? "is-promotion" : ""}" data-index="${index}">
           <label>
             Code
-            <input data-field="id" value="${escapeAttribute(product.id)}" placeholder="${isNew ? "Generated after category" : ""}" readonly>
+            <input data-field="id" value="${escapeAttribute(normalizedProduct.id)}" placeholder="${isNew ? "Generated after category" : ""}" readonly>
           </label>
           <label>
             Name
-            <input data-field="name" value="${escapeAttribute(product.name)}" required>
+            <input data-field="name" value="${escapeAttribute(normalizedProduct.name)}" required ${fieldLock}>
           </label>
           <label>
             Category
-            <select data-field="category" required>
+            <select data-field="category" required ${fieldLock}>
               ${isNew ? `<option value="">Select category</option>` : ""}
               ${categoryOptions}
             </select>
           </label>
+          ${fieldVisibility.sku ? `
+            <label>
+              SKU
+              <input data-field="sku" value="${escapeAttribute(normalizedProduct.sku)}" placeholder="Optional SKU" ${fieldLock}>
+            </label>
+          ` : ""}
+          ${fieldVisibility.barcode ? `
+            <label>
+              Barcode
+              <input data-field="barcode" value="${escapeAttribute(normalizedProduct.barcode)}" placeholder="Scan or type barcode" ${fieldLock}>
+            </label>
+          ` : ""}
           <label>
             Price
-            <input data-field="price" type="number" min="0" step="0.01" value="${Number(product.price).toFixed(2)}" required>
+            <input data-field="price" type="number" min="0" step="0.01" value="${Number(normalizedProduct.price).toFixed(2)}" required ${fieldLock}>
           </label>
           <label>
             Stock
-            <input data-field="stock" type="number" min="0" step="1" value="${Number(product.stock || 0)}">
+            <input data-field="stock" type="number" min="0" step="1" value="${Number(normalizedProduct.stock || 0)}" ${fieldLock}>
           </label>
-          <label class="tax-toggle">
-            Tax
-            <input data-field="taxable" type="checkbox" ${product.taxable === false ? "" : "checked"}>
+          ${fieldVisibility.reorderAt ? `
+            <label>
+              Reorder At
+              <input data-field="reorderLevel" type="number" min="0" step="1" value="${Number(normalizedProduct.reorderLevel || 0)}" ${fieldLock}>
+            </label>
+          ` : ""}
+          <label>
+            Status
+            <select data-field="status">
+              ${renderProductStatusOptions(normalizedProduct.status)}
+            </select>
           </label>
-          ${isNewStatusActive(product) ? `<span class="minor-status-badge">NEW!</span>` : ""}
+          ${fieldVisibility.note ? `
+            <label class="inventory-note-field">
+              Note
+              <input data-field="note" value="${escapeAttribute(normalizedProduct.note)}" placeholder="Optional item note" ${fieldLock}>
+            </label>
+          ` : ""}
+          ${fieldVisibility.adjustmentReason ? `
+            <label class="inventory-note-field">
+              Stock Adjustment Reason
+              <input data-field="adjustmentReason" value="${escapeAttribute(normalizedProduct.adjustmentReason)}" placeholder="Reason for stock change" ${fieldLock}>
+            </label>
+          ` : ""}
+          <div class="inventory-tax-actions">
+            <label class="tax-toggle">
+              Tax
+              <input data-field="taxable" type="checkbox" ${normalizedProduct.taxable === false ? "" : "checked"} ${fieldLock}>
+            </label>
+            <button class="icon-button danger-button" type="button" data-remove-index="${index}" aria-label="Remove ${escapeAttribute(normalizedProduct.name)}" ${isLocked ? "disabled" : ""}>
+              <span aria-hidden="true">x</span>
+            </button>
+          </div>
+          ${isNewStatusActive(normalizedProduct) ? `<span class="minor-status-badge">NEW!</span>` : ""}
+          ${normalizedProduct.status === "promotion" ? `<span class="product-promotion-badge">PROMO</span>` : ""}
           ${isNew ? `<button class="secondary-button inventory-save-button" type="button" data-save-new-index="${index}">Save</button>` : ""}
-          <button class="icon-button danger-button" type="button" data-remove-index="${index}" aria-label="Remove ${escapeAttribute(product.name)}">
-            <span aria-hidden="true">x</span>
-          </button>
         </div>
       `;
       }
@@ -162,10 +376,12 @@ function renderInventory() {
     row.querySelector('[data-field="category"]').value = product.isNew === true
       ? ""
       : product.category || currentSettings.categories[0] || "General";
+    row.querySelector('[data-field="status"]').value = normalizeProductStatus(product.status);
   });
 }
 
 function renderPurchases() {
+  if (!els.purchaseList) return;
   const categoryOptions = currentSettings.categories
     .map((category) => `<option value="${escapeAttribute(category)}">${escapeHtml(category)}</option>`)
     .join("");
@@ -275,20 +491,45 @@ function renderPurchaseItems(items, categoryOptions) {
 function collectInventory() {
   return [...els.inventoryList.querySelectorAll(".inventory-row")].map((row) => {
     const index = Number(row.dataset.index);
+    const existingProduct = normalizeProduct(currentSettings.products[index] || {}, index);
+    const nameInput = row.querySelector('[data-field="name"]');
+    const categoryInput = row.querySelector('[data-field="category"]');
+    const skuInput = row.querySelector('[data-field="sku"]');
+    const barcodeInput = row.querySelector('[data-field="barcode"]');
+    const priceInput = row.querySelector('[data-field="price"]');
+    const stockInput = row.querySelector('[data-field="stock"]');
+    const reorderInput = row.querySelector('[data-field="reorderLevel"]');
+    const taxableInput = row.querySelector('[data-field="taxable"]');
+    const noteInput = row.querySelector('[data-field="note"]');
+    const adjustmentReasonInput = row.querySelector('[data-field="adjustmentReason"]');
     const id = row.querySelector('[data-field="id"]').value.trim();
-    const name = row.querySelector('[data-field="name"]').value.trim() || "Unnamed Item";
-    const category = row.querySelector('[data-field="category"]').value.trim() || "General";
-    const price = Number(row.querySelector('[data-field="price"]').value || 0);
-    const stock = Number(row.querySelector('[data-field="stock"]').value || 0);
-    const taxable = row.querySelector('[data-field="taxable"]').checked;
+    const name = (nameInput.disabled ? existingProduct.name : nameInput.value).trim() || "Unnamed Item";
+    const category = (categoryInput.disabled ? existingProduct.category : categoryInput.value).trim() || "General";
+    const sku = (skuInput ? (skuInput.disabled ? existingProduct.sku : skuInput.value) : existingProduct.sku).trim();
+    const barcode = (barcodeInput ? (barcodeInput.disabled ? existingProduct.barcode : barcodeInput.value) : existingProduct.barcode).trim();
+    const price = Number(priceInput.disabled ? existingProduct.price : priceInput.value || 0);
+    const stock = Number(stockInput.disabled ? existingProduct.stock : stockInput.value || 0);
+    const reorderLevel = Math.max(0, Number(reorderInput ? (reorderInput.disabled ? existingProduct.reorderLevel : reorderInput.value || 0) : existingProduct.reorderLevel));
+    const taxable = taxableInput.disabled ? existingProduct.taxable !== false : taxableInput.checked;
+    const status = normalizeProductStatus(row.querySelector('[data-field="status"]').value);
+    const note = (noteInput ? (noteInput.disabled ? existingProduct.note : noteInput.value) : existingProduct.note).trim();
+    const adjustmentReason = (adjustmentReasonInput
+      ? (adjustmentReasonInput.disabled ? existingProduct.adjustmentReason : adjustmentReasonInput.value)
+      : existingProduct.adjustmentReason).trim();
 
     return {
       id,
       name,
       category,
+      sku,
+      barcode,
       price,
       stock,
+      reorderLevel,
       taxable,
+      status,
+      note,
+      adjustmentReason,
       minorStatus: currentSettings.products[index]?.minorStatus === "new" ? "new" : "",
       minorStatusAt: currentSettings.products[index]?.minorStatusAt || "",
       isNew: currentSettings.products[index]?.isNew === true
@@ -297,6 +538,7 @@ function collectInventory() {
 }
 
 function collectPurchases() {
+  if (!els.purchaseList) return normalizePurchases(currentSettings.purchases);
   return [...els.purchaseList.querySelectorAll(".purchase-row")].map((row, index) => {
     const items = [...row.querySelectorAll(".purchase-item-row")].map((itemRow) => ({
       code: itemRow.querySelector('[data-field="code"]').value.trim(),
@@ -313,10 +555,12 @@ function collectPurchases() {
       company: row.querySelector('[data-field="company"]').value.trim(),
       billNumber: row.querySelector('[data-field="billNumber"]').value.trim(),
       date: row.querySelector('[data-field="date"]').value || new Date().toISOString().slice(0, 10),
+      createdAt: currentSettings.purchases[index]?.createdAt || new Date().toISOString(),
       amount: Number(row.querySelector('[data-field="amount"]').value || 0),
       notes: row.querySelector('[data-field="notes"]').value.trim(),
       paid: row.querySelector('[data-field="paid"]').checked,
       addedToInventory: currentSettings.purchases[index]?.addedToInventory === true,
+      appliedInventoryItems: normalizeAppliedInventoryItems(currentSettings.purchases[index]?.appliedInventoryItems),
       items
     };
   }).filter((purchase) => purchase.company || purchase.billNumber || purchase.notes || purchase.amount > 0 || purchase.items.length);
@@ -332,6 +576,17 @@ function addCategory() {
   renderInventory();
 }
 
+// Status Catalog workflow: create custom item statuses for the Inventory status dropdown.
+function addStatus() {
+  const status = normalizeStatusValue(els.newStatusName.value);
+  if (!status) return;
+
+  currentSettings.productStatuses = normalizeProductStatuses([...currentSettings.productStatuses, status]);
+  els.newStatusName.value = "";
+  renderStatuses();
+  renderInventory();
+}
+
 function removeCategory(index) {
   currentSettings.categories = currentSettings.categories.filter((_, itemIndex) => itemIndex !== index);
   currentSettings.categories = normalizeCategories(currentSettings.categories);
@@ -344,21 +599,46 @@ function removeCategory(index) {
   renderInventory();
 }
 
+// Removing a custom status safely moves any assigned items back to Active.
+function removeStatus(index) {
+  currentSettings.productStatuses = normalizeProductStatuses(currentSettings.productStatuses);
+  const status = currentSettings.productStatuses[index];
+  if (defaultProductStatuses.includes(status)) return;
+
+  currentSettings.productStatuses = currentSettings.productStatuses.filter((_, itemIndex) => itemIndex !== index);
+  currentSettings.products = collectInventory().map((product) => ({
+    ...product,
+    status: product.status === status ? "active" : product.status
+  }));
+  renderStatuses();
+  renderInventory();
+}
+
+// Add Item inserts a draft row at the top; Save on that row generates the item code.
 function addInventoryItem() {
   currentSettings.products = collectInventory();
   currentSettings.products.unshift({
     id: "",
     name: "New Cosmetic Item",
     category: "",
+    sku: "",
+    barcode: "",
     price: 0,
     stock: 0,
+    reorderLevel: 0,
     taxable: true,
+    status: "active",
+    note: "",
+    adjustmentReason: "",
+    minorStatus: "new",
+    minorStatusAt: new Date().toISOString(),
     isNew: true
   });
   renderInventory();
   els.inventoryList.scrollTop = 0;
 }
 
+// New item save workflow validates category/name and persists without requiring Save Inventory.
 async function saveNewInventoryItem(index) {
   currentSettings.products = collectInventory();
   const product = currentSettings.products[index];
@@ -377,17 +657,22 @@ async function saveNewInventoryItem(index) {
   product.isNew = false;
   product.minorStatus = "new";
   product.minorStatusAt = new Date().toISOString();
+  product.status = normalizeProductStatus(product.status);
+  product.note = product.note || "";
   currentSettings = await window.simplePOS.saveSettings({
     ...currentSettings,
     __auditActor: getAuditActor(),
     __auditAction: "Added inventory item",
     __auditDetails: `Item ${product.id} (${product.name}) was added to inventory.`,
     categories: normalizeCategories(currentSettings.categories),
+    productStatuses: normalizeProductStatuses(currentSettings.productStatuses),
     products: currentSettings.products.filter((item) => item.id && item.isNew !== true),
     purchases: collectPurchases()
   });
   currentSettings.categories = normalizeCategories(currentSettings.categories);
+  currentSettings.productStatuses = normalizeProductStatuses(currentSettings.productStatuses);
   currentSettings.purchases = normalizePurchases(currentSettings.purchases);
+  renderStatuses();
   renderInventory();
   renderPurchases();
   els.saveStatus.textContent = `Item ${product.id} saved.`;
@@ -396,23 +681,28 @@ async function saveNewInventoryItem(index) {
   }, 2400);
 }
 
+// Purchase Order entry points support adding supplier bill items into inventory stock.
 function addPurchaseBill() {
+  if (!els.purchaseList) return;
   currentSettings.purchases = collectPurchases();
   currentSettings.purchases.push({
     id: `PO-${Date.now()}`,
     company: "",
     billNumber: "",
     date: new Date().toISOString().slice(0, 10),
+    createdAt: new Date().toISOString(),
     amount: 0,
     notes: "",
     paid: false,
     addedToInventory: false,
+    appliedInventoryItems: [],
     items: []
   });
   renderPurchases();
 }
 
 function addPurchaseItem(purchaseIndex) {
+  if (!els.purchaseList) return;
   currentSettings.purchases = collectPurchases();
   const purchase = currentSettings.purchases[purchaseIndex];
   if (!purchase) return;
@@ -429,6 +719,7 @@ function addPurchaseItem(purchaseIndex) {
 }
 
 function removePurchaseItem(purchaseIndex, itemIndex) {
+  if (!els.purchaseList) return;
   currentSettings.purchases = collectPurchases();
   const purchase = currentSettings.purchases[purchaseIndex];
   if (!purchase) return;
@@ -437,6 +728,7 @@ function removePurchaseItem(purchaseIndex, itemIndex) {
 }
 
 async function applyPurchaseToInventory(purchaseIndex) {
+  if (!els.purchaseList) return;
   currentSettings.products = collectInventory();
   currentSettings.purchases = collectPurchases();
   const purchase = currentSettings.purchases[purchaseIndex];
@@ -461,9 +753,15 @@ async function applyPurchaseToInventory(purchaseIndex) {
         id: item.code || generateItemCode(category, currentSettings.products),
         name: item.name || "Purchased Item",
         category,
+        sku: "",
+        barcode: item.code || "",
         price: item.price || item.cost || 0,
         stock: Number(item.quantity || 0),
-        taxable: item.taxable !== false
+        reorderLevel: 0,
+        taxable: item.taxable !== false,
+        status: "active",
+        note: "",
+        adjustmentReason: ""
       });
     }
   });
@@ -475,11 +773,14 @@ async function applyPurchaseToInventory(purchaseIndex) {
     __auditAction: "Applied purchase to inventory",
     __auditDetails: `Purchase ${purchase.billNumber || purchase.id} from ${purchase.company || "supplier"} was added to inventory.`,
     categories: normalizeCategories(currentSettings.categories),
+    productStatuses: normalizeProductStatuses(currentSettings.productStatuses),
     products: currentSettings.products,
     purchases: currentSettings.purchases
   });
   currentSettings.categories = normalizeCategories(currentSettings.categories);
+  currentSettings.productStatuses = normalizeProductStatuses(currentSettings.productStatuses);
   currentSettings.purchases = normalizePurchases(currentSettings.purchases);
+  renderStatuses();
   renderInventory();
   renderPurchases();
   els.saveStatus.textContent = "Purchase items added to inventory.";
@@ -519,28 +820,66 @@ function removeInventoryItem(index) {
 }
 
 function removePurchaseBill(index) {
+  if (!els.purchaseList) return;
   currentSettings.purchases = collectPurchases().filter((_, itemIndex) => itemIndex !== index);
   renderPurchases();
 }
 
+// Full Inventory save workflow persists categories, statuses, products, purchases, and audit details.
 async function saveInventory(event) {
   event.preventDefault();
+  const nextProducts = collectInventory();
+  const stockAdjustmentIssues = getStockAdjustmentIssues(nextProducts);
+  if (stockAdjustmentIssues.length) {
+    window.alert(`Enter a Stock Adjustment Reason for: ${stockAdjustmentIssues.join(", ")}`);
+    return;
+  }
   currentSettings = await window.simplePOS.saveSettings({
     ...currentSettings,
     __auditActor: getAuditActor(),
     __auditAction: "Saved inventory",
-    __auditDetails: "Inventory, categories, or purchasing records were updated.",
+    __auditDetails: getInventoryAuditDetails(nextProducts),
     categories: normalizeCategories(currentSettings.categories),
-    products: collectInventory().filter((product) => product.id && product.isNew !== true),
+    productStatuses: normalizeProductStatuses(currentSettings.productStatuses),
+    products: nextProducts.filter((product) => product.id && product.isNew !== true),
     purchases: collectPurchases()
   });
   currentSettings.categories = normalizeCategories(currentSettings.categories);
+  currentSettings.productStatuses = normalizeProductStatuses(currentSettings.productStatuses);
+  currentSettings.products = Array.isArray(currentSettings.products) ? currentSettings.products.map(normalizeProduct) : [];
   currentSettings.purchases = normalizePurchases(currentSettings.purchases);
+  renderStatuses();
+  renderInventory();
   renderPurchases();
-  els.saveStatus.textContent = "Inventory and purchasing saved.";
+  els.saveStatus.textContent = "Inventory saved.";
   setTimeout(() => {
     els.saveStatus.textContent = "";
   }, 2400);
+}
+
+function getStockAdjustmentIssues(nextProducts) {
+  if (!getInventoryFieldVisibility().adjustmentReason) return [];
+  return nextProducts
+    .filter((product) => {
+      if (!product.id || product.isNew === true) return false;
+      const previous = currentSettings.products.find((item) => item.id === product.id);
+      if (!previous) return false;
+      return Number(previous.stock || 0) !== Number(product.stock || 0) && !product.adjustmentReason;
+    })
+    .map((product) => product.name || product.id);
+}
+
+function getInventoryAuditDetails(nextProducts) {
+  const stockChanges = nextProducts
+    .map((product) => {
+      const previous = currentSettings.products.find((item) => item.id === product.id);
+      if (!previous || Number(previous.stock || 0) === Number(product.stock || 0)) return "";
+      return `${product.name || product.id}: ${previous.stock || 0} to ${product.stock || 0}${product.adjustmentReason ? ` (${product.adjustmentReason})` : ""}`;
+    })
+    .filter(Boolean);
+  return stockChanges.length
+    ? `Inventory updated. Stock adjustments: ${stockChanges.join("; ")}.`
+    : "Inventory or categories were updated.";
 }
 
 async function createInventoryTemplate() {
@@ -620,14 +959,30 @@ function getAuditActor() {
   }
 }
 
+// Button, toggle, and keyboard wiring for Inventory window controls.
 els.form.addEventListener("submit", saveInventory);
+els.toggleCategoriesSection.addEventListener("click", () => {
+  setCategoriesSectionCollapsed(!categoriesSectionCollapsed);
+});
+els.toggleStatusesSection.addEventListener("click", () => {
+  setStatusesSectionCollapsed(!statusesSectionCollapsed);
+});
 els.addCategory.addEventListener("click", addCategory);
 els.newCategoryName.addEventListener("keydown", (event) => {
   if (event.key !== "Enter") return;
   event.preventDefault();
   addCategory();
 });
+els.addStatus.addEventListener("click", addStatus);
+els.newStatusName.addEventListener("keydown", (event) => {
+  if (event.key !== "Enter") return;
+  event.preventDefault();
+  addStatus();
+});
 els.addInventoryItem.addEventListener("click", addInventoryItem);
+els.openPurchaseBill.addEventListener("click", () => {
+  window.simplePOS.openPurchasing({ addBill: true });
+});
 els.inventoryImportExport.addEventListener("click", () => {
   els.importExportStatus.textContent = "";
   els.importExportDialog.showModal();
@@ -637,12 +992,17 @@ els.inventoryImport.addEventListener("click", importInventoryTemplate);
 els.closeImportExport.addEventListener("click", () => {
   els.importExportDialog.close();
 });
-els.addPurchaseBill.addEventListener("click", addPurchaseBill);
+els.addPurchaseBill?.addEventListener("click", addPurchaseBill);
 els.reloadInventory.addEventListener("click", loadManagement);
 els.categoryList.addEventListener("click", (event) => {
   const button = event.target.closest("[data-remove-category]");
   if (!button) return;
   removeCategory(Number(button.dataset.removeCategory));
+});
+els.statusList.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-remove-status]");
+  if (!button || button.disabled) return;
+  removeStatus(Number(button.dataset.removeStatus));
 });
 els.inventoryList.addEventListener("click", (event) => {
   const saveButton = event.target.closest("[data-save-new-index]");
@@ -659,7 +1019,12 @@ els.inventoryList.addEventListener("click", (event) => {
   if (!button) return;
   removeInventoryItem(Number(button.dataset.removeIndex));
 });
-els.purchaseList.addEventListener("click", (event) => {
+els.inventoryList.addEventListener("change", (event) => {
+  if (!event.target.closest('[data-field="status"]')) return;
+  currentSettings.products = collectInventory();
+  renderInventory();
+});
+els.purchaseList?.addEventListener("click", (event) => {
   const removePurchaseButton = event.target.closest("[data-remove-purchase]");
   const addItemButton = event.target.closest("[data-add-purchase-item]");
   const removeItemButton = event.target.closest("[data-remove-purchase-item]");

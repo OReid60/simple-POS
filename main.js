@@ -5,12 +5,19 @@ const path = require("path");
 const extractZip = require("extract-zip");
 const posDatabase = require("./database");
 
+// Electron main process: owns app windows, SQLite-backed settings persistence,
+// IPC handlers, printing/sharing, installer naming, and cross-window shortcuts.
+app.commandLine.appendSwitch("disable-logging");
+
 let mainWindow;
 let settingsWindow;
 let managementWindow;
+let purchasingWindow;
 let reportingWindow;
 let auditWindow;
+let helpWindow;
 let activeRestoredOrderNumber = null;
+let clientBackupInProgress = false;
 
 const hasSingleInstanceLock = app.requestSingleInstanceLock();
 let hostDatabaseReady = false;
@@ -27,6 +34,7 @@ if (!hasSingleInstanceLock) {
   });
 }
 
+// Default settings are the out-of-box values used before a database or setup exists.
 const defaultSettings = {
   businessName: "",
   businessLogo: "",
@@ -34,6 +42,15 @@ const defaultSettings = {
   whatsappNumber: "",
   taxRate: 0.0825,
   receiptPrintingEnabled: false,
+  saleCompleteEnterAction: "startNextSale",
+  ctrlEscShortcutEnabled: true,
+  inventoryFieldVisibility: {
+    sku: true,
+    barcode: true,
+    reorderAt: false,
+    note: true,
+    adjustmentReason: true
+  },
   printerName: "",
   paperSize: "letter",
   silent: false,
@@ -63,11 +80,28 @@ const defaultSettings = {
   holdRetentionHours: 24,
   newItemBadgeTimerEnabled: true,
   newItemBadgeHours: 24,
+  settingsLayout: [
+    { id: "business", width: "full" },
+    { id: "inventory", width: "half" },
+    { id: "payments", width: "half" },
+    { id: "receipt", width: "half" },
+    { id: "database", width: "full" },
+    { id: "staff", width: "full" }
+  ],
+  businessLayout: [
+    { id: "name", width: "full" },
+    { id: "address", width: "full" },
+    { id: "logo", width: "half" },
+    { id: "whatsapp", width: "half" },
+    { id: "theme", width: "half" },
+    { id: "holdTimer", width: "half" }
+  ],
   invoices: [],
   voids: [],
   auditLogs: [],
   purchases: [],
   categories: [],
+  productStatuses: ["active", "inactive", "promotion"],
   products: []
 };
 
@@ -75,8 +109,29 @@ function getSettingsPath() {
   return path.join(app.getPath("userData"), "settings.json");
 }
 
+function getMachineDatabaseConfigPath() {
+  return path.join(app.getPath("userData"), "database-machine.json");
+}
+
+function getInstallationDirectory() {
+  return app.isPackaged ? path.dirname(process.execPath) : __dirname;
+}
+
 function getDatabaseDirectory() {
+  return path.join(getInstallationDirectory(), "POS Database");
+}
+
+function getLegacyDatabaseDirectory() {
   return path.join(app.getPath("documents"), "Simple POS Data");
+}
+
+function getLegacyDefaultDatabasePath() {
+  return path.join(getLegacyDatabaseDirectory(), "pos-data.sqlite");
+}
+
+function isSamePath(leftPath, rightPath) {
+  if (!leftPath || !rightPath) return false;
+  return path.resolve(leftPath) === path.resolve(rightPath);
 }
 
 function readLegacyJsonSettings() {
@@ -87,17 +142,72 @@ function readLegacyJsonSettings() {
   }
 }
 
+function normalizeDatabaseMode(value) {
+  return value === "client" ? "client" : "host";
+}
+
+function readMachineDatabaseConfig() {
+  try {
+    const config = JSON.parse(fs.readFileSync(getMachineDatabaseConfigPath(), "utf8"));
+    const mode = normalizeDatabaseMode(config.databaseMode);
+    const savedPath = String(config.databasePath || getDefaultDatabasePath()).trim() || getDefaultDatabasePath();
+    return {
+      databaseMode: mode,
+      databasePath: mode === "host" && isSamePath(savedPath, getLegacyDefaultDatabasePath())
+        ? getDefaultDatabasePath()
+        : savedPath,
+      databaseSetupLocked: config.databaseSetupLocked !== false,
+      databaseSetupLockedAt: String(config.databaseSetupLockedAt || ""),
+      lastClientBackupDate: String(config.lastClientBackupDate || "")
+    };
+  } catch {
+    return {
+      databaseMode: "host",
+      databasePath: getDefaultDatabasePath(),
+      databaseSetupLocked: true,
+      databaseSetupLockedAt: "",
+      lastClientBackupDate: ""
+    };
+  }
+}
+
+function writeMachineDatabaseConfig(config) {
+  fs.mkdirSync(path.dirname(getMachineDatabaseConfigPath()), { recursive: true });
+  let existingConfig = {};
+  try {
+    existingConfig = JSON.parse(fs.readFileSync(getMachineDatabaseConfigPath(), "utf8"));
+  } catch {
+    existingConfig = {};
+  }
+  const mode = normalizeDatabaseMode(config.databaseMode);
+  const requestedPath = String(config.databasePath || getDefaultDatabasePath()).trim() || getDefaultDatabasePath();
+  fs.writeFileSync(getMachineDatabaseConfigPath(), JSON.stringify({
+    databaseMode: mode,
+    databasePath: mode === "host" && isSamePath(requestedPath, getLegacyDefaultDatabasePath())
+      ? getDefaultDatabasePath()
+      : requestedPath,
+    databaseSetupLocked: config.databaseSetupLocked !== false,
+    databaseSetupLockedAt: config.databaseSetupLockedAt || new Date().toISOString(),
+    lastClientBackupDate: config.lastClientBackupDate || existingConfig.lastClientBackupDate || ""
+  }, null, 2));
+}
+
 function readRawSettings() {
-  if (posDatabase.isReady()) return { ...defaultSettings, ...posDatabase.readSettings() };
-  return { ...defaultSettings, ...(readLegacyJsonSettings() || {}) };
+  const machineConfig = readMachineDatabaseConfig();
+  if (posDatabase.isReady()) return { ...defaultSettings, ...posDatabase.readSettings(), ...machineConfig };
+  return { ...defaultSettings, ...(readLegacyJsonSettings() || {}), ...machineConfig };
 }
 
 function writeRawSettings(settings) {
   if (posDatabase.isReady()) posDatabase.saveSettings(settings);
 }
 
-function getDatabasePath() {
+function getDefaultDatabasePath() {
   return path.join(getDatabaseDirectory(), "pos-data.sqlite");
+}
+
+function getDatabasePath() {
+  return readMachineDatabaseConfig().databasePath || getDefaultDatabasePath();
 }
 
 function isHostMode(settings = readRawSettings()) {
@@ -186,11 +296,140 @@ function writeStoredSettings(settings) {
   writeRawSettings(settings);
 }
 
+function copyDatabaseFiles(sourcePath, targetPath) {
+  if (!sourcePath || !targetPath || path.resolve(sourcePath) === path.resolve(targetPath)) return;
+  fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+  ["", "-wal", "-shm"].forEach((suffix) => {
+    const source = `${sourcePath}${suffix}`;
+    const target = `${targetPath}${suffix}`;
+    if (fs.existsSync(source)) fs.copyFileSync(source, target);
+  });
+}
+
+async function copyDatabaseFilesAsync(sourcePath, targetPath) {
+  if (!sourcePath || !targetPath || path.resolve(sourcePath) === path.resolve(targetPath)) return;
+  await fs.promises.mkdir(path.dirname(targetPath), { recursive: true });
+  await Promise.all(["", "-wal", "-shm"].map(async (suffix) => {
+    const source = `${sourcePath}${suffix}`;
+    const target = `${targetPath}${suffix}`;
+    if (!fs.existsSync(source)) return;
+    await fs.promises.copyFile(source, target);
+  }));
+}
+
+function migrateLegacyDefaultDatabase() {
+  const legacyPath = getLegacyDefaultDatabasePath();
+  const nextPath = getDefaultDatabasePath();
+  if (!fs.existsSync(legacyPath) || fs.existsSync(nextPath)) return "";
+  copyDatabaseFiles(legacyPath, nextPath);
+  return nextPath;
+}
+
+function backupLocalDatabase(reason = "backup") {
+  const localPath = getDefaultDatabasePath();
+  if (!fs.existsSync(localPath)) return "";
+  const backupDir = path.join(getDatabaseDirectory(), "Backups");
+  fs.mkdirSync(backupDir, { recursive: true });
+  const backupPath = path.join(backupDir, `pos-data-${reason}-${formatFileDateTime(new Date())}.sqlite`);
+  copyDatabaseFiles(localPath, backupPath);
+  return backupPath;
+}
+
+function getLocalDateKey(date = new Date()) {
+  return [
+    date.getFullYear(),
+    String(date.getMonth() + 1).padStart(2, "0"),
+    String(date.getDate()).padStart(2, "0")
+  ].join("-");
+}
+
+function broadcastDatabaseBackupStatus(status) {
+  [mainWindow, settingsWindow, managementWindow, purchasingWindow, reportingWindow, auditWindow, helpWindow].forEach((targetWindow) => {
+    if (targetWindow && !targetWindow.isDestroyed()) {
+      targetWindow.webContents.send("database:backup-status", status);
+    }
+  });
+}
+
+async function createDatabaseBackup(reason = "manual", options = {}) {
+  const machineConfig = readMachineDatabaseConfig();
+  const mode = machineConfig.databaseMode === "client" ? "client" : "host";
+  const modeLabel = mode === "client" ? "Client" : "Host";
+  const today = getLocalDateKey();
+  if (options.daily === true && machineConfig.lastClientBackupDate === today) {
+    return { success: true, skipped: true, message: `Daily ${modeLabel} database backup already completed today.` };
+  }
+  const sourcePath = mode === "client" ? machineConfig.databasePath : getDefaultDatabasePath();
+  if (!sourcePath || !fs.existsSync(sourcePath)) {
+    const message = mode === "client"
+      ? "Client database backup skipped because the Host database is unavailable."
+      : "Host database backup skipped because the local database is unavailable.";
+    broadcastDatabaseBackupStatus({ state: "error", message });
+    return { success: false, error: message };
+  }
+
+  const backupDir = path.join(getDatabaseDirectory(), "Backups", modeLabel);
+  const safeReason = String(reason || "backup").replace(/[^a-z0-9-]/gi, "-").toLowerCase();
+  const backupPath = path.join(backupDir, `pos-data-${mode}-${safeReason}-${formatFileDateTime(new Date())}.sqlite`);
+  broadcastDatabaseBackupStatus({ state: "started", message: `${modeLabel} database backup is running in the background...` });
+  if (posDatabase.isReady() && isSamePath(posDatabase.getCurrentDatabasePath(), sourcePath)) {
+    await posDatabase.backupTo(backupPath);
+  } else {
+    await copyDatabaseFilesAsync(sourcePath, backupPath);
+  }
+  writeMachineDatabaseConfig({
+    ...machineConfig,
+    lastClientBackupDate: today
+  });
+  const message = `${modeLabel} database backup completed: ${backupPath}`;
+  broadcastDatabaseBackupStatus({ state: "completed", message, backupPath });
+  appendAuditLog({
+    action: `Created ${modeLabel} database backup`,
+    details: `${reason} backup saved to ${backupPath}.`
+  });
+  return { success: true, backupPath };
+}
+
+function scheduleDatabaseBackup(reason = "manual", options = {}) {
+  if (clientBackupInProgress) {
+    return { success: false, queued: false, message: "Database backup is already running." };
+  }
+  clientBackupInProgress = true;
+  setTimeout(() => {
+    createDatabaseBackup(reason, options).catch((error) => {
+      const message = error?.message || "Database backup failed.";
+      broadcastDatabaseBackupStatus({ state: "error", message });
+    }).finally(() => {
+      clientBackupInProgress = false;
+    });
+  }, 250);
+  return { success: true, scheduled: true };
+}
+
 function ensureDatabaseSetup() {
   fs.mkdirSync(getDatabaseDirectory(), { recursive: true });
+  migrateLegacyDefaultDatabase();
   const legacySettings = readLegacyJsonSettings();
+  const machineConfig = readMachineDatabaseConfig();
+  let activeDatabasePath = machineConfig.databasePath || getDefaultDatabasePath();
+  let startupDatabaseWarning = "";
+
+  if (machineConfig.databaseMode === "client" && !fs.existsSync(activeDatabasePath)) {
+    const backupPath = backupLocalDatabase("host-unavailable");
+    startupDatabaseWarning = backupPath
+      ? `Configured host database was unavailable. Local database backup created at ${backupPath}.`
+      : "Configured host database was unavailable. No local database existed to back up.";
+    activeDatabasePath = getDefaultDatabasePath();
+  }
+
   try {
-    posDatabase.initializeHostDatabase(getDatabaseDirectory(), { ...defaultSettings, ...(legacySettings || {}) });
+    posDatabase.initializeHostDatabase(activeDatabasePath, {
+      ...defaultSettings,
+      ...(legacySettings || {}),
+      ...machineConfig,
+      databasePath: activeDatabasePath,
+      databaseWarning: startupDatabaseWarning
+    });
     hostDatabaseReady = true;
   } catch (error) {
     hostDatabaseReady = false;
@@ -209,10 +448,11 @@ function ensureDatabaseSetup() {
       ...defaultSettings,
       ...settings,
       databaseMode: "host",
-      databasePath: getDatabasePath(),
+      databasePath: getDefaultDatabasePath(),
       databaseSetupLocked: true,
       databaseSetupLockedAt: new Date().toISOString()
     };
+    writeMachineDatabaseConfig(nextSettings);
     writeStoredSettings(nextSettings);
     return;
   }
@@ -223,17 +463,21 @@ function ensureDatabaseSetup() {
       databaseSetupLocked: true,
       databaseSetupLockedAt: settings.databaseSetupLockedAt || new Date().toISOString()
     });
+    writeMachineDatabaseConfig(settings);
   }
 
   if (currentMode === "host") {
     const nextSettings = {
       ...settings,
       databaseMode: "host",
-      databasePath: settings.databasePath || getDatabasePath(),
+      databasePath: settings.databasePath || getDefaultDatabasePath(),
       databaseSetupLocked: true,
       databaseSetupLockedAt: settings.databaseSetupLockedAt || new Date().toISOString()
     };
-    if (!settings.databasePath) writeStoredSettings(nextSettings);
+    if (!settings.databasePath) {
+      writeMachineDatabaseConfig(nextSettings);
+      writeStoredSettings(nextSettings);
+    }
   }
 }
 
@@ -260,6 +504,7 @@ function readStartupSettings() {
   }
 }
 
+// Settings read workflow merges database settings with machine-specific Host/Client config.
 function readSettings() {
   try {
     const saved = readRawSettings();
@@ -276,6 +521,7 @@ function readSettings() {
       users: normalizeUsers(merged.users),
       permissions: normalizePermissions(merged.permissions),
       paymentMethods: normalizePaymentMethods(merged.paymentMethods),
+      businessLayout: normalizeBusinessLayout(merged.businessLayout),
       themeGradient: normalizeThemeGradient(merged.themeGradient),
       nextOrderNumber: normalizeNextOrderNumber(merged.nextOrderNumber, merged.invoices),
       holdRetentionEnabled: merged.holdRetentionEnabled !== false,
@@ -287,14 +533,17 @@ function readSettings() {
       auditLogs: normalizeAuditLogs(merged.auditLogs),
       purchases: normalizePurchases(merged.purchases),
       categories: normalizeCategories(merged.categories),
-      products: normalizeProducts(merged.products, merged.newItemBadgeHours, merged.newItemBadgeTimerEnabled)
+      productStatuses: normalizeProductStatuses(merged.productStatuses),
+      products: normalizeProducts(merged.products, merged.newItemBadgeHours, merged.newItemBadgeTimerEnabled, merged.productStatuses)
     };
   } catch {
     return { ...defaultSettings };
   }
 }
 
+// Settings save workflow normalizes all user data before writing to SQLite.
 function saveSettings(settings) {
+  const productStatuses = normalizeProductStatuses(settings.productStatuses);
   const nextSettings = {
     ...defaultSettings,
     ...settings,
@@ -302,6 +551,10 @@ function saveSettings(settings) {
     users: normalizeUsers(settings.users),
     permissions: normalizePermissions(settings.permissions),
     paymentMethods: normalizePaymentMethods(settings.paymentMethods),
+    saleCompleteEnterAction: normalizeSaleCompleteEnterAction(settings.saleCompleteEnterAction),
+    ctrlEscShortcutEnabled: settings.ctrlEscShortcutEnabled !== false,
+    inventoryFieldVisibility: normalizeInventoryFieldVisibility(settings.inventoryFieldVisibility),
+    businessLayout: normalizeBusinessLayout(settings.businessLayout),
     themeGradient: normalizeThemeGradient(settings.themeGradient),
     setupComplete: settings.setupComplete === true,
     nextOrderNumber: normalizeNextOrderNumber(settings.nextOrderNumber, settings.invoices),
@@ -314,7 +567,8 @@ function saveSettings(settings) {
     auditLogs: normalizeAuditLogs(settings.auditLogs),
     purchases: normalizePurchases(settings.purchases),
     categories: normalizeCategories(settings.categories),
-    products: normalizeProducts(settings.products, settings.newItemBadgeHours, settings.newItemBadgeTimerEnabled)
+    productStatuses,
+    products: normalizeProducts(settings.products, settings.newItemBadgeHours, settings.newItemBadgeTimerEnabled, productStatuses)
   };
   if (shouldUseHostDatabase(nextSettings)) {
     nextSettings.databasePath = nextSettings.databasePath || getDatabasePath();
@@ -357,6 +611,20 @@ function normalizeCategories(categories) {
   return [...new Set(source.map((category) => String(category || "").trim()).filter(Boolean))];
 }
 
+function normalizeStatusValue(status) {
+  return String(status || "").trim().toLowerCase().replace(/\s+/g, "-");
+}
+
+// Product status catalog is owner-editable while built-in statuses remain guaranteed.
+function normalizeProductStatuses(statuses) {
+  const source = Array.isArray(statuses) ? statuses : [];
+  const defaultStatuses = defaultSettings.productStatuses;
+  const normalized = [...defaultStatuses, ...source.map(normalizeStatusValue)]
+    .filter(Boolean)
+    .filter((status, index, list) => list.indexOf(status) === index);
+  return normalized.length ? normalized : defaultStatuses;
+}
+
 function normalizeUsers(users) {
   const source = Array.isArray(users) && users.length ? users : defaultSettings.users;
   const normalized = source
@@ -382,6 +650,43 @@ function normalizePaymentMethods(paymentMethods) {
     }))
     .filter((method) => method.name);
   return normalized.length ? normalized : defaultSettings.paymentMethods;
+}
+
+function normalizeInventoryFieldVisibility(visibility) {
+  const source = visibility && typeof visibility === "object" ? visibility : {};
+  return {
+    sku: source.sku !== false,
+    barcode: source.barcode !== false,
+    reorderAt: source.reorderAt === true,
+    note: source.note !== false,
+    adjustmentReason: source.adjustmentReason !== false
+  };
+}
+
+function normalizeSaleCompleteEnterAction(value) {
+  const action = String(value || "").trim();
+  return ["startNextSale", "shareWhatsApp", "hold"].includes(action) ? action : defaultSettings.saleCompleteEnterAction;
+}
+
+function normalizeBusinessLayout(layout) {
+  const defaultLayout = defaultSettings.businessLayout;
+  const validIds = defaultLayout.map((item) => item.id);
+  const source = Array.isArray(layout) ? layout : [];
+  const seen = new Set();
+  const normalized = source
+    .map((item) => ({
+      id: String(item?.id || "").trim(),
+      width: item?.width === "full" ? "full" : "half"
+    }))
+    .filter((item) => {
+      if (!validIds.includes(item.id) || seen.has(item.id)) return false;
+      seen.add(item.id);
+      return true;
+    });
+  defaultLayout.forEach((item) => {
+    if (!seen.has(item.id)) normalized.push({ ...item });
+  });
+  return normalized;
 }
 
 function normalizeThemeGradient(themeGradient) {
@@ -474,7 +779,10 @@ function normalizeAuditLogs(auditLogs) {
           actorUsername: String(log.actorUsername || "unknown").trim(),
           actorRole: String(log.actorRole || "unknown").trim(),
           action: String(log.action || "Activity").trim(),
-          details: String(log.details || "").trim()
+          details: String(log.details || "").trim(),
+          targetType: String(log.targetType || "").trim(),
+          targetId: String(log.targetId || "").trim(),
+          targetLabel: String(log.targetLabel || "").trim()
         }))
         .filter((log) => log.action)
         .slice(0, 1000)
@@ -491,7 +799,10 @@ function appendAuditLog(entry = {}) {
       actorUsername: entry.actorUsername || entry.actor?.username || "unknown",
       actorRole: entry.actorRole || entry.actor?.role || "unknown",
       action: entry.action || "Activity",
-      details: entry.details || ""
+      details: entry.details || "",
+      targetType: entry.targetType || "",
+      targetId: entry.targetId || "",
+      targetLabel: entry.targetLabel || ""
     },
     ...(Array.isArray(settings.auditLogs) ? settings.auditLogs : [])
   ]);
@@ -510,32 +821,83 @@ function extractAuditMeta(payload = {}) {
     actorUsername: actor.username || payload.cashierUsername || "unknown",
     actorRole: actor.role || payload.cashierRole || "unknown",
     action: payload.__auditAction || "Activity",
-    details: payload.__auditDetails || ""
+    details: payload.__auditDetails || "",
+    targetType: payload.__auditTargetType || "",
+    targetId: payload.__auditTargetId || "",
+    targetLabel: payload.__auditTargetLabel || ""
   };
 }
 
 function normalizePurchases(purchases) {
   return Array.isArray(purchases)
     ? purchases
-        .map((purchase, index) => ({
-          id: String(purchase.id || `PO-${Date.now()}-${index}`).trim(),
-          company: String(purchase.company || "").trim(),
-          billNumber: String(purchase.billNumber || "").trim(),
-          date: String(purchase.date || new Date().toISOString().slice(0, 10)).slice(0, 10),
-          notes: String(purchase.notes || "").trim(),
-          amount: Number(purchase.amount) || 0,
-          paid: purchase.paid === true,
-          addedToInventory: purchase.addedToInventory === true,
-          items: normalizePurchaseItems(purchase.items)
-        }))
+        .map((purchase, index) => {
+          const payments = normalizePurchasePayments(purchase.payments);
+          const amount = Number(purchase.amount) || 0;
+          const balance = Math.max(0, amount - payments.reduce((sum, payment) => sum + payment.amount, 0));
+          const createdAt = getPurchaseCreatedAt(purchase, index);
+          return {
+            id: String(purchase.id || `PO-${Date.now()}-${index}`).trim(),
+            company: String(purchase.company || "").trim(),
+            billNumber: String(purchase.billNumber || "").trim(),
+            date: String(purchase.date || new Date().toISOString().slice(0, 10)).slice(0, 10),
+            createdAt,
+            notes: String(purchase.notes || "").trim(),
+            amount,
+            payments,
+            paid: balance <= 0,
+            addedToInventory: purchase.addedToInventory === true,
+            appliedInventoryItems: normalizeAppliedInventoryItems(purchase.appliedInventoryItems),
+            items: normalizePurchaseItems(purchase.items)
+          };
+        })
         .filter(
           (purchase) =>
             purchase.company ||
             purchase.billNumber ||
             purchase.notes ||
             purchase.amount > 0 ||
+            purchase.payments.length ||
             purchase.items.length
         )
+    : [];
+}
+
+function getPurchaseCreatedAt(purchase, index = 0) {
+  const directTimestamp = Date.parse(purchase?.createdAt || "");
+  if (!Number.isNaN(directTimestamp)) return new Date(directTimestamp).toISOString();
+  const idTimestamp = Number(String(purchase?.id || "").match(/PO-(\d+)/)?.[1]);
+  if (Number.isFinite(idTimestamp)) return new Date(idTimestamp).toISOString();
+  const dateTimestamp = Date.parse(purchase?.date || "");
+  if (!Number.isNaN(dateTimestamp)) return new Date(dateTimestamp).toISOString();
+  return new Date(Date.now() + index).toISOString();
+}
+
+function normalizeAppliedInventoryItems(items) {
+  return Array.isArray(items)
+    ? items
+        .map((item) => ({
+          productId: String(item.productId || "").trim(),
+          productName: String(item.productName || "").trim(),
+          quantity: Number(item.quantity) || 0,
+          priceBefore: Number(item.priceBefore) || 0,
+          priceAfter: Number(item.priceAfter) || 0,
+          priceChanged: item.priceChanged === true,
+          createdProduct: item.createdProduct === true
+        }))
+        .filter((item) => item.productId || item.productName || item.quantity)
+    : [];
+}
+
+function normalizePurchasePayments(payments) {
+  return Array.isArray(payments)
+    ? payments
+        .map((payment) => ({
+          date: String(payment.date || new Date().toISOString().slice(0, 10)).slice(0, 10),
+          amount: Math.max(0, Number(payment.amount) || 0),
+          createdAt: String(payment.createdAt || payment.date || new Date().toISOString())
+        }))
+        .filter((payment) => payment.amount > 0)
     : [];
 }
 
@@ -558,9 +920,11 @@ function normalizePurchaseItems(items) {
 function normalizeProducts(
   products,
   newItemBadgeHours = defaultSettings.newItemBadgeHours,
-  newItemBadgeTimerEnabled = defaultSettings.newItemBadgeTimerEnabled
+  newItemBadgeTimerEnabled = defaultSettings.newItemBadgeTimerEnabled,
+  productStatuses = defaultSettings.productStatuses
 ) {
   if (!Array.isArray(products)) return defaultSettings.products;
+  const normalizedStatuses = normalizeProductStatuses(productStatuses);
 
   return products
     .map((product, index) => {
@@ -569,14 +933,25 @@ function normalizeProducts(
         id: String(product.id || `ITEM-${index + 1}`).trim(),
         name: String(product.name || "Unnamed Item").trim(),
         category: String(product.category || "General").trim(),
+        sku: String(product.sku || "").trim(),
+        barcode: String(product.barcode || "").trim(),
         price: Number(product.price) || 0,
         stock: Number(product.stock) || 0,
+        reorderLevel: Math.max(0, Number(product.reorderLevel) || 0),
         taxable: product.taxable !== false,
+        status: normalizeProductStatus(product.status, normalizedStatuses),
+        note: String(product.note || "").trim(),
+        adjustmentReason: String(product.adjustmentReason || "").trim(),
         minorStatus: minorStatusActive ? "new" : "",
         minorStatusAt: minorStatusActive ? String(product.minorStatusAt || new Date().toISOString()) : ""
       };
     })
     .filter((product) => product.id && product.name);
+}
+
+function normalizeProductStatus(status, productStatuses = defaultSettings.productStatuses) {
+  const value = normalizeStatusValue(status || "active");
+  return normalizeProductStatuses(productStatuses).includes(value) ? value : "active";
 }
 
 function isMinorStatusActive(
@@ -591,6 +966,7 @@ function isMinorStatusActive(
   return Date.now() - timestamp <= normalizeNewItemBadgeHours(newItemBadgeHours) * 60 * 60 * 1000;
 }
 
+// Main POS window opens maximized and is the parent for modal workflow windows.
 function createWindow() {
   const applicationName = applyApplicationName();
   const iconPath = path.join(__dirname, "build", "icon.png");
@@ -615,12 +991,34 @@ function createWindow() {
   mainWindow.loadFile("index.html");
 }
 
+function focusExistingWindow(targetWindow, windowSize) {
+  targetWindow.setMinimumSize(windowSize.minWidth, windowSize.minHeight);
+  targetWindow.setSize(windowSize.width, windowSize.height);
+  if (targetWindow.isMinimized()) targetWindow.restore();
+  targetWindow.maximize();
+  targetWindow.show();
+  targetWindow.focus();
+}
+
+function maximizeAppWindow(targetWindow) {
+  if (!targetWindow || targetWindow.isDestroyed()) return;
+  targetWindow.maximize();
+}
+
+function closeWindowOnEscape(targetWindow) {
+  if (!targetWindow || targetWindow.isDestroyed()) return;
+  targetWindow.webContents.on("before-input-event", (event, input) => {
+    const isEscapeKey = input.key === "Escape" || input.key === "Esc" || input.code === "Escape";
+    if (input.type !== "keyDown" || !isEscapeKey) return;
+    event.preventDefault();
+    if (!targetWindow.isDestroyed()) targetWindow.close();
+  });
+}
+
 function openSettingsWindow() {
   const windowSize = { width: 1180, height: 900, minWidth: 1040, minHeight: 820 };
   if (settingsWindow && !settingsWindow.isDestroyed()) {
-    settingsWindow.setMinimumSize(windowSize.minWidth, windowSize.minHeight);
-    settingsWindow.setSize(windowSize.width, windowSize.height);
-    settingsWindow.focus();
+    focusExistingWindow(settingsWindow, windowSize);
     return;
   }
 
@@ -630,6 +1028,7 @@ function openSettingsWindow() {
     minWidth: windowSize.minWidth,
     minHeight: windowSize.minHeight,
     parent: mainWindow,
+    modal: true,
     title: "POS Settings",
     icon: path.join(__dirname, "build", "icon.png"),
     autoHideMenuBar: true,
@@ -642,6 +1041,8 @@ function openSettingsWindow() {
   });
 
   settingsWindow.setMenuBarVisibility(false);
+  closeWindowOnEscape(settingsWindow);
+  maximizeAppWindow(settingsWindow);
   settingsWindow.loadFile("settings.html");
   settingsWindow.on("closed", () => {
     settingsWindow = null;
@@ -651,9 +1052,7 @@ function openSettingsWindow() {
 function openManagementWindow() {
   const windowSize = { width: 1280, height: 900, minWidth: 1040, minHeight: 820 };
   if (managementWindow && !managementWindow.isDestroyed()) {
-    managementWindow.setMinimumSize(windowSize.minWidth, windowSize.minHeight);
-    managementWindow.setSize(windowSize.width, windowSize.height);
-    managementWindow.focus();
+    focusExistingWindow(managementWindow, windowSize);
     return;
   }
 
@@ -663,6 +1062,7 @@ function openManagementWindow() {
     minWidth: windowSize.minWidth,
     minHeight: windowSize.minHeight,
     parent: mainWindow,
+    modal: true,
     title: "Inventory",
     icon: path.join(__dirname, "build", "icon.png"),
     autoHideMenuBar: true,
@@ -675,24 +1075,72 @@ function openManagementWindow() {
   });
 
   managementWindow.setMenuBarVisibility(false);
+  closeWindowOnEscape(managementWindow);
+  maximizeAppWindow(managementWindow);
   managementWindow.loadFile("management.html");
   managementWindow.on("closed", () => {
     managementWindow = null;
   });
 }
 
-function openReportingWindow(mode = "all") {
+function openPurchasingWindow(options = {}) {
+  const windowSize = { width: 1280, height: 900, minWidth: 1040, minHeight: 820 };
+  const addBill = options && typeof options === "object" && options.addBill === true;
+  const purchaseId = options && typeof options === "object" ? String(options.purchaseId || "").trim() : "";
+  const query = {};
+  if (addBill) query.addBill = "1";
+  if (purchaseId) query.purchaseId = purchaseId;
+  const loadOptions = Object.keys(query).length ? { query } : undefined;
+
+  if (purchasingWindow && !purchasingWindow.isDestroyed()) {
+    purchasingWindow.loadFile("purchasing.html", loadOptions);
+    focusExistingWindow(purchasingWindow, windowSize);
+    return;
+  }
+
+  purchasingWindow = new BrowserWindow({
+    width: windowSize.width,
+    height: windowSize.height,
+    minWidth: windowSize.minWidth,
+    minHeight: windowSize.minHeight,
+    parent: reportingWindow && !reportingWindow.isDestroyed() ? reportingWindow : mainWindow,
+    modal: true,
+    title: "Purchasing",
+    icon: path.join(__dirname, "build", "icon.png"),
+    autoHideMenuBar: true,
+    backgroundColor: "#f5f3ee",
+    webPreferences: {
+      preload: path.join(__dirname, "preload.js"),
+      contextIsolation: true,
+      nodeIntegration: false
+    }
+  });
+
+  purchasingWindow.setMenuBarVisibility(false);
+  closeWindowOnEscape(purchasingWindow);
+  maximizeAppWindow(purchasingWindow);
+  purchasingWindow.loadFile("purchasing.html", loadOptions);
+  purchasingWindow.on("closed", () => {
+    purchasingWindow = null;
+  });
+}
+
+function openReportingWindow(options = "all") {
+  const mode = typeof options === "object" && options !== null ? options.mode : options;
+  const reportDate = typeof options === "object" && options !== null ? String(options.reportDate || "").trim() : "";
   const isHeldMode = mode === "holds";
   const isEndOfDayMode = mode === "eod";
+  const query = {};
+  if (isHeldMode || isEndOfDayMode) query.mode = mode;
+  if (isEndOfDayMode && reportDate) query.reportDate = reportDate;
+  const loadOptions = Object.keys(query).length ? { query } : undefined;
   const windowSize = isHeldMode
     ? { width: 1180, height: 900, minWidth: 1040, minHeight: 820 }
     : { width: 1180, height: 900, minWidth: 1040, minHeight: 820 };
 
   if (reportingWindow && !reportingWindow.isDestroyed()) {
-    reportingWindow.setMinimumSize(windowSize.minWidth, windowSize.minHeight);
-    reportingWindow.setSize(windowSize.width, windowSize.height);
-    reportingWindow.loadFile("reporting.html", isHeldMode || isEndOfDayMode ? { query: { mode } } : undefined);
-    reportingWindow.focus();
+    reportingWindow.loadFile("reporting.html", loadOptions);
+    focusExistingWindow(reportingWindow, windowSize);
     return;
   }
 
@@ -702,7 +1150,8 @@ function openReportingWindow(mode = "all") {
     minWidth: windowSize.minWidth,
     minHeight: windowSize.minHeight,
     parent: mainWindow,
-    title: isHeldMode ? "Held Receipts" : isEndOfDayMode ? "End-of-Day Report" : "Reporting",
+    modal: true,
+    title: isHeldMode ? "Held Receipts" : isEndOfDayMode ? "End-of-Day Report" : "Dashboard",
     icon: path.join(__dirname, "build", "icon.png"),
     autoHideMenuBar: true,
     backgroundColor: "#f5f3ee",
@@ -714,7 +1163,9 @@ function openReportingWindow(mode = "all") {
   });
 
   reportingWindow.setMenuBarVisibility(false);
-  reportingWindow.loadFile("reporting.html", isHeldMode || isEndOfDayMode ? { query: { mode } } : undefined);
+  closeWindowOnEscape(reportingWindow);
+  maximizeAppWindow(reportingWindow);
+  reportingWindow.loadFile("reporting.html", loadOptions);
   reportingWindow.on("closed", () => {
     reportingWindow = null;
   });
@@ -723,9 +1174,7 @@ function openReportingWindow(mode = "all") {
 function openAuditWindow() {
   const windowSize = { width: 1180, height: 900, minWidth: 1040, minHeight: 820 };
   if (auditWindow && !auditWindow.isDestroyed()) {
-    auditWindow.setMinimumSize(windowSize.minWidth, windowSize.minHeight);
-    auditWindow.setSize(windowSize.width, windowSize.height);
-    auditWindow.focus();
+    focusExistingWindow(auditWindow, windowSize);
     return;
   }
 
@@ -735,6 +1184,7 @@ function openAuditWindow() {
     minWidth: windowSize.minWidth,
     minHeight: windowSize.minHeight,
     parent: settingsWindow || mainWindow,
+    modal: true,
     title: "Audit Log",
     icon: path.join(__dirname, "build", "icon.png"),
     autoHideMenuBar: true,
@@ -747,9 +1197,63 @@ function openAuditWindow() {
   });
 
   auditWindow.setMenuBarVisibility(false);
+  closeWindowOnEscape(auditWindow);
+  maximizeAppWindow(auditWindow);
   auditWindow.loadFile("audit.html");
   auditWindow.on("closed", () => {
     auditWindow = null;
+  });
+}
+
+function getFocusedAppParentWindow() {
+  return BrowserWindow.getFocusedWindow() || mainWindow;
+}
+
+function normalizeHelpTopic(topic) {
+  const value = String(topic || "pos").trim().toLowerCase();
+  return ["pos", "dashboard", "inventory", "settings"].includes(value) ? value : "pos";
+}
+
+// Help window can show context-specific topics such as POS, Dashboard, or Inventory.
+function openHelpWindow(topic = "pos") {
+  const helpTopic = normalizeHelpTopic(topic);
+  const windowSize = { width: 980, height: 820, minWidth: 860, minHeight: 720 };
+  if (helpWindow && !helpWindow.isDestroyed()) {
+    helpWindow.loadFile("help.html", { query: { topic: helpTopic } });
+    focusExistingWindow(helpWindow, windowSize);
+    return;
+  }
+
+  helpWindow = new BrowserWindow({
+    width: windowSize.width,
+    height: windowSize.height,
+    minWidth: windowSize.minWidth,
+    minHeight: windowSize.minHeight,
+    parent: getFocusedAppParentWindow(),
+    modal: true,
+    title: "POS Help",
+    icon: path.join(__dirname, "build", "icon.png"),
+    autoHideMenuBar: true,
+    backgroundColor: "#f5f3ee",
+    webPreferences: {
+      preload: path.join(__dirname, "preload.js"),
+      contextIsolation: true,
+      nodeIntegration: false
+    }
+  });
+
+  helpWindow.setMenuBarVisibility(false);
+  closeWindowOnEscape(helpWindow);
+  maximizeAppWindow(helpWindow);
+  helpWindow.loadFile("help.html", { query: { topic: helpTopic } });
+  helpWindow.on("closed", () => {
+    helpWindow = null;
+  });
+}
+
+function closeAuxiliaryWindowsForLogout() {
+  [settingsWindow, managementWindow, purchasingWindow, reportingWindow, auditWindow, helpWindow].forEach((targetWindow) => {
+    if (targetWindow && !targetWindow.isDestroyed()) targetWindow.close();
   });
 }
 
@@ -757,6 +1261,7 @@ if (hasSingleInstanceLock) {
   app.whenReady().then(() => {
     ensureDatabaseSetup();
     createWindow();
+    scheduleDatabaseBackup("daily-startup", { daily: true });
     updateWindowsShortcuts();
   });
 }
@@ -775,6 +1280,28 @@ ipcMain.handle("settings:open", () => {
 
 ipcMain.handle("management:open", () => {
   openManagementWindow();
+});
+
+ipcMain.handle("purchasing:open", (_event, payload = {}) => {
+  openPurchasingWindow(payload);
+});
+
+ipcMain.handle("help:open", (_event, topic) => {
+  openHelpWindow(topic);
+});
+
+ipcMain.handle("auth:logout-shortcut", () => {
+  const settings = readSettings();
+  if (settings.ctrlEscShortcutEnabled === false) return { success: false, disabled: true };
+  closeAuxiliaryWindowsForLogout();
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send("auth:logout-requested");
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.maximize();
+    mainWindow.show();
+    mainWindow.focus();
+  }
+  return { success: true };
 });
 
 ipcMain.handle("inventory:template", async () => {
@@ -827,13 +1354,22 @@ ipcMain.handle("inventory:import", async (_event, actor) => {
   }
 });
 
-ipcMain.handle("reporting:open", (_event, mode) => {
-  openReportingWindow(mode === "holds" || mode === "eod" ? mode : "all");
+ipcMain.handle("reporting:open", (_event, payload) => {
+  if (payload && typeof payload === "object") {
+    const mode = payload.mode === "holds" || payload.mode === "eod" ? payload.mode : "all";
+    openReportingWindow({ mode, reportDate: payload.reportDate });
+    return;
+  }
+  openReportingWindow(payload === "holds" || payload === "eod" ? payload : "all");
 });
 
 ipcMain.handle("reporting:close", () => {
   if (reportingWindow && !reportingWindow.isDestroyed()) reportingWindow.close();
   return { success: true };
+});
+
+ipcMain.handle("app:close", () => {
+  app.quit();
 });
 
 ipcMain.handle("audit:open", () => {
@@ -850,6 +1386,9 @@ ipcMain.handle("settings:save", (_event, settings) => {
   delete settingsPayload.__auditActor;
   delete settingsPayload.__auditAction;
   delete settingsPayload.__auditDetails;
+  delete settingsPayload.__auditTargetType;
+  delete settingsPayload.__auditTargetId;
+  delete settingsPayload.__auditTargetLabel;
   const saved = saveSettings(settingsPayload);
   broadcastSettings(saved);
   appendAuditLog({
@@ -857,6 +1396,83 @@ ipcMain.handle("settings:save", (_event, settings) => {
     action: auditMeta.action === "Activity" ? "Saved settings" : auditMeta.action
   });
   return saved;
+});
+
+ipcMain.handle("database:select-file", async () => {
+  const result = await dialog.showOpenDialog(settingsWindow || mainWindow, {
+    title: "Select Host POS Database",
+    properties: ["openFile"],
+    filters: [{ name: "SQLite Database", extensions: ["sqlite"] }]
+  });
+  if (result.canceled || !result.filePaths?.[0]) return { cancelled: true };
+  return { path: result.filePaths[0] };
+});
+
+ipcMain.handle("database:select-folder", async () => {
+  const result = await dialog.showOpenDialog(settingsWindow || mainWindow, {
+    title: "Select Host Database Folder",
+    properties: ["openDirectory", "createDirectory"]
+  });
+  if (result.canceled || !result.filePaths?.[0]) return { cancelled: true };
+  return { path: path.join(result.filePaths[0], "pos-data.sqlite") };
+});
+
+ipcMain.handle("database:configure", (_event, payload = {}) => {
+  const mode = normalizeDatabaseMode(payload.mode);
+  const currentSettings = readSettings();
+  const currentDatabasePath = posDatabase.getCurrentDatabasePath() || getDefaultDatabasePath();
+  const requestedPath = String(payload.databasePath || "").trim();
+  const nextDatabasePath = mode === "host"
+    ? (requestedPath || getDefaultDatabasePath())
+    : requestedPath;
+
+  if (mode === "client" && !nextDatabasePath) {
+    return { success: false, error: "Select the Host PC database file before switching to Client." };
+  }
+  if (mode === "client" && !fs.existsSync(nextDatabasePath)) {
+    const backupPath = backupLocalDatabase("client-host-unavailable");
+    return {
+      success: false,
+      error: backupPath
+        ? `Host database was unavailable. Local database backup created at ${backupPath}.`
+        : "Host database was unavailable and no local database existed to back up."
+    };
+  }
+
+  try {
+    const nextMachineConfig = {
+      databaseMode: mode,
+      databasePath: nextDatabasePath,
+      databaseSetupLocked: true,
+      databaseSetupLockedAt: new Date().toISOString()
+    };
+    const saved = saveSettings({
+      ...currentSettings,
+      ...nextMachineConfig
+    });
+    if (mode === "host") copyDatabaseFiles(currentDatabasePath, nextDatabasePath);
+    writeMachineDatabaseConfig(nextMachineConfig);
+    const auditActor = payload.actor && typeof payload.actor === "object" ? payload.actor : {};
+    appendAuditLog({
+      actorName: auditActor.name,
+      actorUsername: auditActor.username,
+      actorRole: auditActor.role,
+      action: "Changed database mode",
+      details: `Database mode set to ${mode}. Path: ${nextDatabasePath}`
+    });
+    broadcastSettings(saved);
+    return {
+      success: true,
+      restartRequired: path.resolve(currentDatabasePath) !== path.resolve(nextDatabasePath),
+      settings: saved
+    };
+  } catch (error) {
+    return { success: false, error: error.message || "Unable to configure database mode." };
+  }
+});
+
+ipcMain.handle("database:backup", (_event, payload = {}) => {
+  return scheduleDatabaseBackup(payload.reason || "manual", { daily: payload.daily === true });
 });
 
 ipcMain.handle("audit:log", (_event, entry) => appendAuditLog(entry));
@@ -1084,6 +1700,9 @@ function broadcastSettings(settings) {
   if (reportingWindow && !reportingWindow.isDestroyed()) {
     reportingWindow.webContents.send("settings:updated", settings);
   }
+  if (purchasingWindow && !purchasingWindow.isDestroyed()) {
+    purchasingWindow.webContents.send("settings:updated", settings);
+  }
   if (auditWindow && !auditWindow.isDestroyed()) {
     auditWindow.webContents.send("settings:updated", settings);
   }
@@ -1271,8 +1890,11 @@ async function importInventoryWorkbook(workbookPath, settings) {
     const headerIndexes = {
       name: headers.findIndex((header) => header === "name" || header === "item"),
       category: headers.findIndex((header) => header === "category" || header === "catagory"),
+      sku: headers.findIndex((header) => header === "sku"),
+      barcode: headers.findIndex((header) => header === "barcode" || header === "bar code"),
       price: headers.findIndex((header) => header === "price" || header === "sellprice" || header === "sellingprice"),
       stock: headers.findIndex((header) => header === "stock" || header === "quantity" || header === "qty"),
+      reorderLevel: headers.findIndex((header) => header === "reorderat" || header === "reorderlevel" || header === "reorderpoint"),
       taxable: headers.findIndex((header) => header === "taxable" || header === "tax")
     };
 
@@ -1280,7 +1902,7 @@ async function importInventoryWorkbook(workbookPath, settings) {
       throw new Error("Template must include Name and Category columns.");
     }
 
-    const products = normalizeProducts(settings.products, settings.newItemBadgeHours, settings.newItemBadgeTimerEnabled);
+    const products = normalizeProducts(settings.products, settings.newItemBadgeHours, settings.newItemBadgeTimerEnabled, settings.productStatuses);
     let created = 0;
     let updated = 0;
     const importedAt = new Date().toISOString();
@@ -1295,15 +1917,25 @@ async function importInventoryWorkbook(workbookPath, settings) {
 
       const price = parseImportNumber(row[headerIndexes.price]);
       const stock = parseImportNumber(row[headerIndexes.stock]);
+      const sku = headerIndexes.sku >= 0 ? String(row[headerIndexes.sku] || "").trim() : "";
+      const barcode = headerIndexes.barcode >= 0 ? String(row[headerIndexes.barcode] || "").trim() : "";
+      const reorderLevel = headerIndexes.reorderLevel >= 0 ? parseImportNumber(row[headerIndexes.reorderLevel]) : 0;
       const taxable = parseImportBoolean(row[headerIndexes.taxable], true);
       const existingProduct = products.find((product) =>
-        product.name.trim().toLowerCase() === name.toLowerCase() &&
-        product.category.trim().toLowerCase() === category.toLowerCase()
+        (sku && String(product.sku || "").trim().toLowerCase() === sku.toLowerCase()) ||
+        (barcode && String(product.barcode || "").trim().toLowerCase() === barcode.toLowerCase()) ||
+        (
+          product.name.trim().toLowerCase() === name.toLowerCase() &&
+          product.category.trim().toLowerCase() === category.toLowerCase()
+        )
       );
 
       if (existingProduct) {
         existingProduct.price = price;
         existingProduct.stock = stock;
+        existingProduct.sku = sku;
+        existingProduct.barcode = barcode;
+        existingProduct.reorderLevel = reorderLevel;
         existingProduct.taxable = taxable;
         updated += 1;
         return;
@@ -1313,9 +1945,15 @@ async function importInventoryWorkbook(workbookPath, settings) {
         id: generateInventoryItemCode(category, products),
         name,
         category,
+        sku,
+        barcode,
         price,
         stock,
+        reorderLevel,
         taxable,
+        status: "active",
+        note: "",
+        adjustmentReason: "",
         minorStatus: "new",
         minorStatusAt: importedAt
       });
@@ -1435,7 +2073,7 @@ function unescapeXml(value) {
 function buildInventoryTemplateXlsx(settings) {
   const categories = normalizeCategories(settings.categories);
   const rows = [
-    ["Name", "Category", "Price", "Stock", "Taxable"]
+    ["Name", "Category", "SKU", "Barcode", "Price", "Stock", "Reorder At", "Taxable"]
   ];
   const categoryRows = [["Category"], ...categories.map((category) => [category])];
   const files = {

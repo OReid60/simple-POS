@@ -1,11 +1,18 @@
 const { contextBridge, ipcRenderer } = require("electron");
 
+// Preload bridge: exposes approved IPC actions to renderer windows with context isolation enabled.
 contextBridge.exposeInMainWorld("simplePOS", {
   getStartupSettings: () => ipcRenderer.invoke("settings:startup"),
   getSettings: () => ipcRenderer.invoke("settings:get"),
   saveSettings: (settings) => ipcRenderer.invoke("settings:save", settings),
+  selectDatabaseFile: () => ipcRenderer.invoke("database:select-file"),
+  selectDatabaseFolder: () => ipcRenderer.invoke("database:select-folder"),
+  configureDatabase: (payload) => ipcRenderer.invoke("database:configure", payload),
+  backupDatabase: (payload) => ipcRenderer.invoke("database:backup", payload),
   openSettings: () => ipcRenderer.invoke("settings:open"),
   openManagement: () => ipcRenderer.invoke("management:open"),
+  openPurchasing: (payload) => ipcRenderer.invoke("purchasing:open", payload),
+  openHelp: (topic) => ipcRenderer.invoke("help:open", topic),
   createInventoryTemplate: () => ipcRenderer.invoke("inventory:template"),
   importInventoryTemplate: (actor) => ipcRenderer.invoke("inventory:import", actor),
   openReporting: (mode) => ipcRenderer.invoke("reporting:open", mode),
@@ -13,6 +20,9 @@ contextBridge.exposeInMainWorld("simplePOS", {
   openAuditLog: () => ipcRenderer.invoke("audit:open"),
   onSettingsUpdated: (callback) => {
     ipcRenderer.on("settings:updated", (_event, settings) => callback(settings));
+  },
+  onDatabaseBackupStatus: (callback) => {
+    ipcRenderer.on("database:backup-status", (_event, status) => callback(status));
   },
   onInvoiceRestore: (callback) => {
     ipcRenderer.on("invoice:restore", (_event, invoice) => callback(invoice));
@@ -28,5 +38,10 @@ contextBridge.exposeInMainWorld("simplePOS", {
   printReceipt: (payload) => ipcRenderer.invoke("receipt:print", payload),
   shareReceiptWhatsApp: (payload) => ipcRenderer.invoke("receipt:share-whatsapp", payload),
   shareEndOfDayWhatsApp: (payload) => ipcRenderer.invoke("report:end-of-day-whatsapp", payload),
-  openPath: (targetPath) => ipcRenderer.invoke("path:open", targetPath)
+  openPath: (targetPath) => ipcRenderer.invoke("path:open", targetPath),
+  closeApp: () => ipcRenderer.invoke("app:close"),
+  requestLogoutShortcut: () => ipcRenderer.invoke("auth:logout-shortcut"),
+  onLogoutRequested: (callback) => {
+    ipcRenderer.on("auth:logout-requested", () => callback());
+  }
 });

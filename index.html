@@ -28,7 +28,10 @@
               <input id="setupContactNumber" type="tel" autocomplete="tel" required>
             </label>
             <p class="form-error" id="setupBusinessError" role="alert"></p>
-            <button class="checkout-button" type="submit">Continue</button>
+            <div class="setup-actions">
+              <button class="secondary-button" type="button" data-open-help>Help</button>
+              <button class="checkout-button" type="submit">Continue</button>
+            </div>
           </form>
         </div>
 
@@ -76,7 +79,10 @@
           <input id="password" type="password" autocomplete="current-password" required>
         </label>
         <p class="form-error" id="loginError" role="alert"></p>
-        <button class="checkout-button" type="submit">Sign In</button>
+        <div class="setup-actions">
+          <button class="secondary-button" type="button" data-open-help>Help</button>
+          <button class="checkout-button" type="submit">Sign In</button>
+        </div>
         <div class="demo-users is-hidden" id="loginUserHints" aria-hidden="true"></div>
       </form>
     </section>
@@ -109,6 +115,7 @@
             <button class="secondary-button" id="managementButton" type="button">Inventory</button>
             <button class="secondary-button" id="reportingButton" type="button">Dashboard</button>
           </div>
+          <button class="secondary-button" id="helpButton" type="button" data-open-help>Help</button>
           <button class="secondary-button is-hidden" id="logoutButton" type="button">Logout</button>
         </div>
       </header>
@@ -193,7 +200,7 @@
         <div class="receipt-header">
           <div>
             <p class="eyebrow">Receipt</p>
-            <h2>Sale Complete</h2>
+            <h2>Complete Sale</h2>
           </div>
         </div>
         <div id="receiptBody"></div>
