@@ -2,6 +2,67 @@
 
 These notes summarize application changes from `1.0.0` through the current build. The repository does not currently contain tags for every historical build, so early `1.0.x` and `1.1.x` notes are grouped from the accumulated project change history. Recent builds are listed individually where the exact version is known.
 
+## 1.2.21
+
+- Reverted the extra Save Settings button alignment refinement and left the button using the previous Settings styling.
+
+## 1.2.20
+
+- Refined the main Save Settings button container so it matches the Save Printer Settings button sizing and alignment.
+
+## 1.2.19
+
+- Updated the main Save Settings button width to match the Save Printer Settings button.
+
+## 1.2.18
+
+- Added a 30-day activation trial for new installations.
+- Added activation warnings at 15, 10, and 1 day remaining before activation is required.
+- Locked POS sales when the activation trial expires while still allowing Admin/Owner access to Settings for activation.
+- Disabled the Activation backup email field and Generate Activation Request button after activation is confirmed.
+- Updated Settings so every main section supports Expand/Collapse and opens collapsed by default.
+
+## 1.2.17
+
+- Updated Activation to use a backup email browser-draft workflow.
+- Removed SMTP sender fields and automatic SMTP sending from Activation.
+- Generate Activation now opens webmail for the backup email account with the activation message filled in and the To field empty.
+- Confirmation still requires the user to paste the activation number from the sent email so POS can verify it.
+
+## 1.2.16
+
+- Updated Activation to send activation emails automatically through SMTP.
+- Added SMTP sender settings to the Activation section: host, port, secure toggle, sender email, username, and password/app password.
+- Generate Activation now sends the email first, then opens the confirmation window for the user to paste the emailed activation number.
+- Removed browser email draft behavior from Activation.
+- Added Nodemailer for automatic email delivery.
+
+## 1.2.15
+
+- Updated Activation so the confirmation window no longer displays the generated activation number.
+- Activation now saves the generated key internally, opens the browser email containing the key, and requires the user to paste the emailed key back into POS.
+- Confirm Activation now cross-checks the pasted activation number against the generated key before confirming.
+- Cancel Activation marks the pending activation request as cancelled.
+
+## 1.2.14
+
+- Updated Activation requests to open browser-based email compose pages instead of the local email application.
+- Added a Confirm Activation dialog with Confirm and Cancel actions before saving/sending the activation request.
+- Removed the activation code from the Settings status message after generation.
+- Added email wording advising users to keep the activation number safe because each client receives one activation.
+
+## 1.2.13
+
+- Added an Activation section to Settings.
+- Activation includes a user email address field and Generate Activation Request button.
+- Activation requests are generated from the Windows motherboard serial number, current date and time, and Business name.
+- Generated activation requests open the default email app with the request details filled in.
+- Activation requests are saved to settings and recorded in Audit Log.
+
+## 1.2.12
+
+- Removed the Help button from the login screen.
+
 ## 1.2.11
 
 - Renamed the Receipt Builder button from Save Receipt Settings to Save Receipt Layout.

@@ -90,6 +90,19 @@
           </div>
         </section>
 
+        <section class="settings-section settings-section-activation" data-layout-section="activation" data-layout-title="Activation">
+          <h2>Activation</h2>
+          <p class="settings-note">Generate an activation request for this PC using the Windows motherboard serial number, current date and time, and Business name. POS opens the backup email account in the browser with the activation message ready to send.</p>
+          <label>
+            Backup email address
+            <input id="activationEmail" type="email" placeholder="backup@example.com">
+          </label>
+          <div class="settings-actions activation-actions">
+            <button class="checkout-button" id="generateActivation" type="button">Generate Activation Request</button>
+          </div>
+          <p class="settings-note printer-save-status" id="activationStatus" role="status"></p>
+        </section>
+
         <section class="settings-section settings-section-payments" data-layout-section="payments" data-layout-title="Payment Methods">
           <div class="section-title-row">
             <h2>Payment Methods</h2>
@@ -292,6 +305,22 @@
         <p class="settings-note" id="saveStatus" role="status"></p>
       </form>
     </main>
+
+    <dialog id="activationDialog" class="auth-dialog">
+      <div class="auth-modal">
+        <h2>Confirm Activation</h2>
+        <p>After the browser email draft opens, fill in the primary email address and send it. Then copy the activation number from that email and paste it below. POS will verify it against the generated key.</p>
+        <label>
+          Activation number
+          <input id="activationCodeInput" type="text" placeholder="Paste activation number from email">
+        </label>
+        <p class="settings-note">The activation number is not shown here. The user must copy it from the email. One activation is generated per client PC.</p>
+        <div class="checkout-actions">
+          <button class="secondary-button" id="cancelActivation" type="button">Cancel</button>
+          <button class="checkout-button" id="confirmActivation" type="button">Confirm Activation</button>
+        </div>
+      </div>
+    </dialog>
 
     <script src="window-shortcuts.js"></script>
     <script src="settings.js"></script>

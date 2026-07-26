@@ -57,6 +57,12 @@ const state = {
     businessAdditionalAddressEnabled: false,
     businessAdditionalAddress: "",
     whatsappNumber: "",
+    activationStatus: {
+      activated: false,
+      expired: false,
+      daysRemaining: 30,
+      warning: false
+    },
     taxRate: 0.0825,
     receiptPrintingEnabled: false,
     saleCompleteEnterAction: "startNextSale",
@@ -252,6 +258,7 @@ async function loadStartupSettings() {
       businessAddress: startupSettings.businessAddress || state.settings.businessAddress,
       whatsappNumber: startupSettings.whatsappNumber || state.settings.whatsappNumber,
       setupComplete: startupSettings.setupComplete === true,
+      activationStatus: startupSettings.activationStatus || state.settings.activationStatus,
       themeGradient: normalizeThemeGradient(startupSettings.themeGradient || state.settings.themeGradient)
     };
     state.users = Array.isArray(startupSettings.users) && startupSettings.users.length
@@ -303,6 +310,34 @@ function renderBusinessName(loadLogo = Boolean(state.currentUser)) {
   els.businessLogo.src = showLogo ? state.settings.businessLogo : "";
   els.businessLogo.classList.toggle("is-hidden", !showLogo);
   document.title = getApplicationTitle();
+  renderActivationNotice();
+}
+
+function getActivationStatus() {
+  return state.settings.activationStatus || {};
+}
+
+function isActivationExpired() {
+  const status = getActivationStatus();
+  return status.expired === true && status.activated !== true;
+}
+
+function canAccessExpiredActivation(user) {
+  const role = String(user?.role || "").toLowerCase();
+  const username = String(user?.username || "").toLowerCase();
+  return role === "admin" || role === "owner" || username === "admin" || username === "owner";
+}
+
+function renderActivationNotice() {
+  const status = getActivationStatus();
+  if (status.activated || state.settings.setupComplete !== true) return;
+  if (status.expired) {
+    els.loginError.textContent = "Activation required. Trial has expired. Administrator must activate POS before sales can continue.";
+    return;
+  }
+  if (status.warning) {
+    els.loginError.textContent = `Activation warning: ${status.daysRemaining} day(s) remaining before POS requires activation.`;
+  }
 }
 
 function getApplicationTitle() {
@@ -868,11 +903,12 @@ function renderCart() {
   els.discountAmount.textContent = `-${formatMoney(totals.discount)}`;
   els.total.textContent = formatMoney(totals.total);
   els.changeDue.textContent = formatMoney(change);
-  els.discountSale.disabled = cartItems.length === 0 || !hasTenderedAmount();
+  const activationLocked = isActivationExpired();
+  els.discountSale.disabled = activationLocked || cartItems.length === 0 || !hasTenderedAmount();
   els.discountSale.title = els.discountSale.disabled
-    ? "Enter Amount tendered before applying a discount."
+    ? activationLocked ? "Activation required before discounts can be applied." : "Enter Amount tendered before applying a discount."
     : "Apply a discount to the sale total.";
-  els.completeSale.disabled = cartItems.length === 0 || tendered < totals.total;
+  els.completeSale.disabled = activationLocked || cartItems.length === 0 || tendered < totals.total;
 }
 
 function buildSalePayload(orderNumber) {
@@ -934,6 +970,10 @@ async function getReceiptOrderNumber() {
 
 // Complete Sale workflow builds a receipt, reserves order number, and opens receipt actions.
 async function completeSale() {
+  if (isActivationExpired()) {
+    alert("Activation required. POS sales are locked until activation is confirmed.");
+    return;
+  }
   els.completeSale.disabled = true;
   const orderNumber = await getReceiptOrderNumber();
   const isRestoredBill = Boolean(state.restoredOrderNumber);
@@ -1190,8 +1230,16 @@ async function handleLogin() {
   try {
     await loadSettings();
     const currentUser = state.users.find((item) => item.username === username && item.password === password) || user;
+    if (isActivationExpired() && !canAccessExpiredActivation(currentUser)) {
+      els.loginError.textContent = "Activation required. Trial has expired. Ask an administrator to activate POS.";
+      return;
+    }
     els.loginForm.reset();
     setAuthenticatedUser(currentUser);
+    if (isActivationExpired()) {
+      els.loginError.textContent = "Activation required. Settings is available for activation, but sales are locked.";
+      window.simplePOS?.openSettings?.();
+    }
     if (window.simplePOS) {
       window.simplePOS.logAudit({
         actorName: currentUser.name,
@@ -1223,6 +1271,10 @@ els.categoryTabs.addEventListener("click", (event) => {
 els.productGrid.addEventListener("click", (event) => {
   const button = event.target.closest("[data-product-id]");
   if (!button) return;
+  if (isActivationExpired()) {
+    alert("Activation required. POS sales are locked until activation is confirmed.");
+    return;
+  }
   addToCart(button.dataset.productId);
 });
 

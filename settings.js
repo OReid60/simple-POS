@@ -11,6 +11,13 @@ const els = {
   businessLogoPlaceholder: document.querySelector("#businessLogoPlaceholder"),
   clearBusinessLogo: document.querySelector("#clearBusinessLogo"),
   whatsappNumber: document.querySelector("#whatsappNumber"),
+  activationEmail: document.querySelector("#activationEmail"),
+  generateActivation: document.querySelector("#generateActivation"),
+  activationStatus: document.querySelector("#activationStatus"),
+  activationDialog: document.querySelector("#activationDialog"),
+  activationCodeInput: document.querySelector("#activationCodeInput"),
+  cancelActivation: document.querySelector("#cancelActivation"),
+  confirmActivation: document.querySelector("#confirmActivation"),
   taxRate: document.querySelector("#taxRate"),
   holdRetentionEnabled: document.querySelector("#holdRetentionEnabled"),
   holdRetentionHours: document.querySelector("#holdRetentionHours"),
@@ -70,6 +77,7 @@ const els = {
 
 const defaultSettingsLayout = [
   { id: "business", width: "full" },
+  { id: "activation", width: "full" },
   { id: "inventory", width: "half" },
   { id: "payments", width: "half" },
   { id: "receipt", width: "full" },
@@ -143,9 +151,8 @@ let draggedLayoutSectionId = "";
 let draggedBusinessLayoutItemId = "";
 let draggedReceiptSectionId = "";
 let databaseConfigUnlocked = false;
-let databaseSectionCollapsed = true;
-let staffSectionCollapsed = true;
 let receiptBuilderCollapsed = true;
+let pendingActivationRequest = null;
 
 let currentSettings = {
   businessName: "",
@@ -154,6 +161,14 @@ let currentSettings = {
   businessAdditionalAddressEnabled: false,
   businessAdditionalAddress: "",
   whatsappNumber: "",
+  activationEmail: "",
+  activationLastRequest: null,
+  activationStatus: {
+    activated: false,
+    expired: false,
+    daysRemaining: 30,
+    warning: false
+  },
   taxRate: 0.0825,
   holdRetentionEnabled: true,
   holdRetentionHours: 24,
@@ -201,6 +216,7 @@ async function loadSettings() {
   updateAdditionalAddressControl();
   renderLogoPreview();
   els.whatsappNumber.value = currentSettings.whatsappNumber;
+  els.activationEmail.value = currentSettings.activationEmail || "";
   els.taxRate.value = (Number(currentSettings.taxRate || 0) * 100).toFixed(2);
   els.holdRetentionEnabled.checked = currentSettings.holdRetentionEnabled !== false;
   els.holdRetentionHours.value = els.holdRetentionEnabled.checked ? Number(currentSettings.holdRetentionHours || 24) : "";
@@ -226,6 +242,8 @@ async function loadSettings() {
   els.silentPrint.checked = currentSettings.silent;
   els.receiptFooterText.value = currentSettings.receiptTemplate.footerText;
   renderDatabaseConfig();
+  initializeSettingsSectionCollapses();
+  renderActivationControls();
   updatePrinterControls();
   renderPaymentMethods();
   renderUsers();
@@ -280,27 +298,78 @@ function renderDatabaseConfig() {
     : "Database mode unlocked. Choose Host or Client, then apply.";
 }
 
-// Collapsible Database Mode section is locked by default and unlocked with Ctrl+1.
-function toggleDatabaseSection() {
-  databaseSectionCollapsed = !databaseSectionCollapsed;
-  els.databaseModeBody.classList.toggle("is-hidden", databaseSectionCollapsed);
-  els.toggleDatabaseSection.textContent = databaseSectionCollapsed ? "Expand" : "Collapse";
-  els.toggleDatabaseSection.setAttribute("aria-expanded", String(!databaseSectionCollapsed));
-}
-
-// Collapsible User Account section keeps staff/password settings hidden until needed.
-function toggleStaffSection() {
-  staffSectionCollapsed = !staffSectionCollapsed;
-  els.staffSectionBody.classList.toggle("is-hidden", staffSectionCollapsed);
-  els.toggleStaffSection.textContent = staffSectionCollapsed ? "Expand" : "Collapse";
-  els.toggleStaffSection.setAttribute("aria-expanded", String(!staffSectionCollapsed));
-}
-
 function toggleReceiptBuilder() {
   receiptBuilderCollapsed = !receiptBuilderCollapsed;
   els.receiptBuilderBody.classList.toggle("is-hidden", receiptBuilderCollapsed);
   els.toggleReceiptBuilder.textContent = receiptBuilderCollapsed ? "Expand" : "Collapse";
   els.toggleReceiptBuilder.setAttribute("aria-expanded", String(!receiptBuilderCollapsed));
+}
+
+// Every Settings section starts collapsed so the page opens cleanly and the user expands only what they need.
+function initializeSettingsSectionCollapses() {
+  document.querySelectorAll(".settings-form > .settings-section").forEach((section) => {
+    let header = section.querySelector(":scope > .collapsible-section-header");
+    let body = section.querySelector(":scope > .collapsible-section-body");
+    const title = section.dataset.layoutTitle || section.querySelector("h2")?.textContent || "Section";
+
+    if (!header) {
+      const heading = section.querySelector(":scope > h2");
+      const titleRow = section.querySelector(":scope > .section-title-row");
+      if (titleRow?.querySelector("h2")) {
+        header = titleRow;
+        header.classList.add("collapsible-section-header");
+      } else {
+        header = document.createElement("div");
+        header.className = "collapsible-section-header";
+        if (heading) {
+          header.appendChild(heading);
+        } else {
+          header.insertAdjacentHTML("beforeend", `<h2>${escapeHtml(title)}</h2>`);
+        }
+        section.insertBefore(header, section.firstChild);
+      }
+
+      let actions = header.querySelector(":scope > .collapsible-section-header-actions");
+      if (!actions) {
+        actions = header.querySelector(":scope > .section-title-actions");
+      }
+      if (!actions) {
+        actions = document.createElement("div");
+        actions.className = "collapsible-section-header-actions";
+        header.appendChild(actions);
+      }
+      actions.insertAdjacentHTML("beforeend", `
+        <button class="secondary-button settings-section-toggle" type="button" aria-expanded="false">Expand</button>
+      `);
+    }
+
+    if (!body) {
+      body = document.createElement("div");
+      body.className = "collapsible-section-body";
+      Array.from(section.childNodes).forEach((node) => {
+        if (node !== header) body.appendChild(node);
+      });
+      section.appendChild(body);
+    }
+
+    const button = header.querySelector("[data-settings-section-toggle], .settings-section-toggle, #toggleDatabaseSection, #toggleStaffSection");
+    if (button) {
+      button.dataset.settingsSectionToggle = "";
+      button.textContent = "Expand";
+      button.setAttribute("aria-expanded", "false");
+    }
+    body.classList.add("is-hidden");
+  });
+}
+
+function toggleSettingsSection(button) {
+  const section = button.closest(".settings-section");
+  const body = section?.querySelector(":scope > .collapsible-section-body");
+  if (!body) return;
+  const collapsed = !body.classList.contains("is-hidden");
+  body.classList.toggle("is-hidden", collapsed);
+  button.textContent = collapsed ? "Expand" : "Collapse";
+  button.setAttribute("aria-expanded", String(!collapsed));
 }
 
 function normalizeSettingsLayout(layout) {
@@ -948,6 +1017,137 @@ async function saveReceiptSettings() {
   }, 2400);
 }
 
+function isActivationConfirmed() {
+  return currentSettings.activationStatus?.activated === true ||
+    currentSettings.activationLastRequest?.status === "confirmed";
+}
+
+function renderActivationControls() {
+  const activated = isActivationConfirmed();
+  els.activationEmail.disabled = activated;
+  els.generateActivation.disabled = activated;
+  els.generateActivation.classList.toggle("is-disabled", activated);
+
+  if (activated) {
+    els.activationStatus.textContent = "Activation confirmed. This PC is activated.";
+    return;
+  }
+
+  const status = currentSettings.activationStatus || {};
+  if (status.expired) {
+    els.activationStatus.textContent = "Trial expired. Activation is required before POS sales can continue.";
+    return;
+  }
+  if (status.warning) {
+    els.activationStatus.textContent = `Activation warning: ${status.daysRemaining} day(s) remaining before activation is required.`;
+    return;
+  }
+  if (Number.isFinite(Number(status.daysRemaining))) {
+    els.activationStatus.textContent = `Trial active: ${status.daysRemaining} day(s) remaining.`;
+  }
+}
+
+async function generateActivationRequest() {
+  const email = els.activationEmail.value.trim();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    els.activationStatus.textContent = "Enter a valid backup email address.";
+    return;
+  }
+
+  els.generateActivation.disabled = true;
+  els.activationStatus.textContent = "Generating activation email draft...";
+  try {
+    const result = await window.simplePOS.requestActivation({
+      email,
+      businessName: els.businessName.value.trim(),
+      actor: getAuditActor()
+    });
+    if (!result?.success) {
+      els.activationStatus.textContent = result?.error || "Unable to generate activation request.";
+      return;
+    }
+    currentSettings = {
+      ...currentSettings,
+      ...result.settings
+    };
+    els.activationEmail.value = currentSettings.activationEmail || email;
+    pendingActivationRequest = result.request;
+    els.activationCodeInput.value = "";
+    els.activationStatus.textContent = "Activation draft opened. Fill in the primary email, send it, then paste the activation number to confirm.";
+    els.activationDialog.showModal();
+    els.activationCodeInput.focus();
+  } catch {
+    els.activationStatus.textContent = "Unable to generate activation request.";
+  } finally {
+    renderActivationControls();
+  }
+}
+
+async function confirmActivationRequest() {
+  if (!pendingActivationRequest) {
+    els.activationStatus.textContent = "No activation request is waiting for confirmation.";
+    return;
+  }
+
+  const enteredCode = els.activationCodeInput.value.trim();
+  if (!enteredCode) {
+    els.activationStatus.textContent = "Paste the activation number from the email before confirming.";
+    els.activationCodeInput.focus();
+    return;
+  }
+
+  els.confirmActivation.disabled = true;
+  els.cancelActivation.disabled = true;
+  els.activationStatus.textContent = "Checking activation number...";
+  try {
+    const result = await window.simplePOS.requestActivation({
+      email: els.activationEmail.value.trim(),
+      businessName: els.businessName.value.trim(),
+      request: pendingActivationRequest,
+      activationNumber: enteredCode,
+      confirmed: true,
+      actor: getAuditActor()
+    });
+    if (!result?.success) {
+      els.activationStatus.textContent = result?.error || "Unable to confirm activation request.";
+      return;
+    }
+    currentSettings = {
+      ...currentSettings,
+      ...result.settings
+    };
+    els.activationEmail.value = currentSettings.activationEmail || pendingActivationRequest.email || "";
+    pendingActivationRequest = null;
+    els.activationDialog.close();
+    renderActivationControls();
+  } catch {
+    els.activationStatus.textContent = "Unable to confirm activation request.";
+  } finally {
+    els.confirmActivation.disabled = false;
+    els.cancelActivation.disabled = false;
+  }
+}
+
+async function cancelActivationRequest() {
+  if (pendingActivationRequest) {
+    try {
+      await window.simplePOS.requestActivation({
+        email: els.activationEmail.value.trim(),
+        request: pendingActivationRequest,
+        cancelled: true,
+        actor: getAuditActor()
+      });
+    } catch {
+      // Keep closing the dialog even if the cancellation audit cannot be saved.
+    }
+  }
+  pendingActivationRequest = null;
+  els.activationCodeInput.value = "";
+  els.activationDialog.close();
+  els.activationStatus.textContent = "Activation request cancelled.";
+  renderActivationControls();
+}
+
 function collectSettingsPayload() {
   return {
     ...currentSettings,
@@ -960,6 +1160,8 @@ function collectSettingsPayload() {
     businessAdditionalAddress: els.businessAdditionalAddress.value.trim(),
     businessLogo: currentSettings.businessLogo || "",
     whatsappNumber: els.whatsappNumber.value.trim(),
+    activationEmail: els.activationEmail.value.trim(),
+    activationLastRequest: currentSettings.activationLastRequest || null,
     taxRate: Number(els.taxRate.value || 0) / 100,
     holdRetentionEnabled: els.holdRetentionEnabled.checked,
     holdRetentionHours: els.holdRetentionEnabled.checked ? Math.max(1, Number(els.holdRetentionHours.value || 24)) : 24,
@@ -1160,6 +1362,17 @@ els.saveReceiptSettings.addEventListener("click", () => {
     els.receiptSaveStatus.textContent = "Unable to save receipt settings.";
   });
 });
+els.generateActivation.addEventListener("click", () => {
+  generateActivationRequest().catch(() => {
+    els.activationStatus.textContent = "Unable to generate activation request.";
+  });
+});
+els.confirmActivation.addEventListener("click", () => {
+  confirmActivationRequest().catch(() => {
+    els.activationStatus.textContent = "Unable to confirm activation request.";
+  });
+});
+els.cancelActivation.addEventListener("click", cancelActivationRequest);
 els.receiptPrintingEnabled.addEventListener("change", () => {
   updatePrinterControls();
   if (els.receiptPrintingEnabled.checked) loadPrinters();
@@ -1185,8 +1398,6 @@ els.openBackupLocation.addEventListener("click", async () => {
   }
 });
 els.applyDatabaseMode.addEventListener("click", applyDatabaseMode);
-els.toggleDatabaseSection.addEventListener("click", toggleDatabaseSection);
-els.toggleStaffSection.addEventListener("click", toggleStaffSection);
 els.refreshPrinters.addEventListener("click", loadPrinters);
 els.savePrinterSettings.addEventListener("click", () => {
   savePrinterSettings().catch(() => {
@@ -1206,6 +1417,13 @@ els.addPaymentMethod.addEventListener("click", addPaymentMethod);
 els.businessLogo.addEventListener("change", loadLogoFile);
 els.clearBusinessLogo.addEventListener("click", clearLogo);
 els.form.addEventListener("click", (event) => {
+  const sectionToggle = event.target.closest("[data-settings-section-toggle]");
+  if (sectionToggle) {
+    event.preventDefault();
+    toggleSettingsSection(sectionToggle);
+    return;
+  }
+
   const resizeButton = event.target.closest("[data-layout-resize]");
   const businessResizeButton = event.target.closest("[data-business-layout-resize]");
   if (businessResizeButton) {

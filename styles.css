@@ -1097,6 +1097,8 @@ dialog::backdrop {
 .settings-save-actions {
   order: 999;
   grid-column: 1 / -1;
+  grid-template-columns: minmax(220px, 320px);
+  justify-content: end;
 }
 
 .settings-section-actions .checkout-button,
@@ -1153,7 +1155,10 @@ dialog::backdrop {
 
 .settings-section-receipt > label,
 .settings-section-receipt > .printer-refresh-button,
-.settings-section-receipt > .printer-status-message {
+.settings-section-receipt > .printer-status-message,
+.settings-section-receipt .collapsible-section-body > label,
+.settings-section-receipt .collapsible-section-body > .printer-refresh-button,
+.settings-section-receipt .collapsible-section-body > .printer-status-message {
   max-width: 520px;
 }
 

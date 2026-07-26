@@ -1,6 +1,8 @@
 const { app, BrowserWindow, ipcMain, shell, dialog } = require("electron");
 const { execFile } = require("child_process");
+const crypto = require("crypto");
 const fs = require("fs");
+const os = require("os");
 const path = require("path");
 const extractZip = require("extract-zip");
 const posDatabase = require("./database");
@@ -71,6 +73,10 @@ const defaultSettings = {
   businessAdditionalAddressEnabled: false,
   businessAdditionalAddress: "",
   whatsappNumber: "",
+  activationEmail: "",
+  activationLastRequest: null,
+  activationTrialStartedAt: "",
+  activationTrialDays: 30,
   taxRate: 0.0825,
   receiptPrintingEnabled: false,
   saleCompleteEnterAction: "startNextSale",
@@ -116,6 +122,7 @@ const defaultSettings = {
   newItemBadgeHours: 24,
   settingsLayout: [
     { id: "business", width: "full" },
+    { id: "activation", width: "full" },
     { id: "inventory", width: "half" },
     { id: "payments", width: "half" },
     { id: "receipt", width: "full" },
@@ -524,6 +531,7 @@ function readStartupSettings() {
       businessAddress: String(saved.businessAddress || "").trim(),
       whatsappNumber: String(saved.whatsappNumber || "").trim(),
       setupComplete: saved.setupComplete === true,
+      activationStatus: getActivationStatus(saved),
       themeGradient: normalizeThemeGradient(saved.themeGradient),
       users: normalizeUsers(saved.users)
     };
@@ -533,6 +541,7 @@ function readStartupSettings() {
       businessAddress: defaultSettings.businessAddress,
       whatsappNumber: defaultSettings.whatsappNumber,
       setupComplete: defaultSettings.setupComplete,
+      activationStatus: getActivationStatus(defaultSettings),
       themeGradient: defaultSettings.themeGradient,
       users: defaultSettings.users
     };
@@ -543,15 +552,23 @@ function readStartupSettings() {
 function readSettings() {
   try {
     const saved = readRawSettings();
+    const activationTrialStartedAt = String(saved.activationTrialStartedAt || new Date().toISOString());
+    if (!saved.activationTrialStartedAt) {
+      writeRawSettings({
+        ...saved,
+        activationTrialStartedAt
+      });
+    }
     const merged = {
       ...defaultSettings,
       ...saved,
+      activationTrialStartedAt,
       databaseMode: saved.databaseMode || "",
       databasePath: saved.databasePath || getDatabasePath(),
       databaseSetupLocked: saved.databaseSetupLocked === true,
       databaseSetupLockedAt: String(saved.databaseSetupLockedAt || "")
     };
-    return {
+    const normalizedSettings = {
       ...merged,
       users: normalizeUsers(merged.users),
       permissions: normalizePermissions(merged.permissions),
@@ -574,8 +591,15 @@ function readSettings() {
       productStatuses: normalizeProductStatuses(merged.productStatuses),
       products: normalizeProducts(merged.products, merged.newItemBadgeHours, merged.newItemBadgeTimerEnabled, merged.productStatuses)
     };
+    return {
+      ...normalizedSettings,
+      activationStatus: getActivationStatus(normalizedSettings)
+    };
   } catch {
-    return { ...defaultSettings };
+    return {
+      ...defaultSettings,
+      activationStatus: getActivationStatus(defaultSettings)
+    };
   }
 }
 
@@ -589,6 +613,10 @@ function saveSettings(settings) {
     businessAddress: String(settings.businessAddress || "").trim(),
     businessAdditionalAddressEnabled: settings.businessAdditionalAddressEnabled === true,
     businessAdditionalAddress: String(settings.businessAdditionalAddress || "").trim(),
+    activationEmail: String(settings.activationEmail || "").trim(),
+    activationLastRequest: normalizeActivationRequest(settings.activationLastRequest),
+    activationTrialStartedAt: String(settings.activationTrialStartedAt || new Date().toISOString()),
+    activationTrialDays: Math.max(1, Number(settings.activationTrialDays || defaultSettings.activationTrialDays)),
     taxRate: normalizeTaxRate(settings.taxRate),
     users: normalizeUsers(settings.users),
     permissions: normalizePermissions(settings.permissions),
@@ -624,6 +652,39 @@ function saveSettings(settings) {
     return saved;
   }
   return nextSettings;
+}
+
+function normalizeActivationRequest(request) {
+  if (!request || typeof request !== "object") return null;
+  return {
+    email: String(request.email || "").trim(),
+    businessName: String(request.businessName || "").trim(),
+    generatedAt: String(request.generatedAt || "").trim(),
+    activationCode: String(request.activationCode || "").trim(),
+    hardwareSource: String(request.hardwareSource || "").trim(),
+    status: ["pending", "confirmed", "cancelled"].includes(request.status) ? request.status : "pending",
+    confirmedAt: String(request.confirmedAt || "").trim(),
+    cancelledAt: String(request.cancelledAt || "").trim()
+  };
+}
+
+function getActivationStatus(settings = {}) {
+  const request = normalizeActivationRequest(settings.activationLastRequest);
+  const trialDays = Math.max(1, Number(settings.activationTrialDays || defaultSettings.activationTrialDays));
+  const startedAt = new Date(settings.activationTrialStartedAt || new Date().toISOString()).getTime();
+  const elapsedDays = Number.isFinite(startedAt)
+    ? Math.max(0, Math.floor((Date.now() - startedAt) / 86400000))
+    : 0;
+  const daysRemaining = Math.max(0, trialDays - elapsedDays);
+  const activated = request?.status === "confirmed";
+  return {
+    activated,
+    expired: !activated && daysRemaining <= 0,
+    daysRemaining,
+    trialDays,
+    elapsedDays,
+    warning: !activated && [15, 10, 1].includes(daysRemaining)
+  };
 }
 
 function normalizePermissions(permissions) {
@@ -864,6 +925,179 @@ function appendAuditLog(entry = {}) {
   });
   broadcastSettings(saved);
   return saved.auditLogs[0];
+}
+
+function execFileText(file, args) {
+  return new Promise((resolve) => {
+    execFile(file, args, { windowsHide: true }, (error, stdout) => {
+      resolve(error ? "" : String(stdout || "").trim());
+    });
+  });
+}
+
+async function getMotherboardSerial() {
+  if (process.platform === "win32") {
+    const powershellSerial = await execFileText("powershell.exe", [
+      "-NoProfile",
+      "-ExecutionPolicy",
+      "Bypass",
+      "-Command",
+      "(Get-CimInstance Win32_BaseBoard | Select-Object -ExpandProperty SerialNumber)"
+    ]);
+    if (powershellSerial) return { serial: powershellSerial, source: "Windows motherboard serial" };
+
+    const wmicSerial = await execFileText("wmic.exe", ["baseboard", "get", "serialnumber"]);
+    const serial = wmicSerial
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => line && !/^serialnumber$/i.test(line))[0];
+    if (serial) return { serial, source: "Windows motherboard serial" };
+  }
+
+  return { serial: `HOST-${os.hostname()}`, source: "Host name fallback" };
+}
+
+function buildActivationCode({ serial, businessName, generatedAt }) {
+  const digest = crypto
+    .createHash("sha256")
+    .update(`${serial}|${generatedAt}|${businessName}`)
+    .digest("hex")
+    .toUpperCase()
+    .slice(0, 32);
+  return digest.match(/.{1,4}/g).join("-");
+}
+
+async function createActivationRequest(payload = {}) {
+  const settings = readSettings();
+  const email = String(payload.email || settings.activationEmail || "").trim();
+  const savedRequest = normalizeActivationRequest(settings.activationLastRequest);
+
+  if (payload.cancelled === true) {
+    if (!savedRequest) return { success: true, cancelled: true, settings };
+    const cancelledRequest = {
+      ...savedRequest,
+      status: "cancelled",
+      cancelledAt: new Date().toISOString()
+    };
+    const saved = saveSettings({
+      ...settings,
+      activationEmail: email,
+      activationLastRequest: cancelledRequest
+    });
+    appendAuditLog({
+      actor: payload.actor,
+      action: "Cancelled activation request",
+      details: `Activation request for ${cancelledRequest.businessName} was cancelled.`
+    });
+    return { success: true, cancelled: true, settings: saved };
+  }
+
+  if (payload.confirmed === true) {
+    const enteredCode = normalizeActivationCode(payload.activationNumber);
+    const expectedCode = normalizeActivationCode(savedRequest?.activationCode || "");
+    if (!savedRequest || !expectedCode) {
+      return { success: false, error: "No generated activation request was found." };
+    }
+    if (!enteredCode || enteredCode !== expectedCode) {
+      return { success: false, error: "Activation number does not match the generated request." };
+    }
+    const confirmedRequest = {
+      ...savedRequest,
+      email,
+      status: "confirmed",
+      confirmedAt: new Date().toISOString()
+    };
+    const saved = saveSettings({
+      ...settings,
+      activationEmail: email,
+      activationLastRequest: confirmedRequest
+    });
+    appendAuditLog({
+      actor: payload.actor,
+      action: "Confirmed activation request",
+      details: `Activation request for ${confirmedRequest.businessName} was confirmed.`
+    });
+    return { success: true, request: redactActivationRequest(confirmedRequest), settings: saved };
+  }
+
+  const request = await buildActivationRequest({
+    email,
+    businessName: String(payload.businessName || settings.businessName || "POS").trim()
+  });
+  const pendingRequest = {
+    ...request,
+    status: "pending"
+  };
+  const saved = saveSettings({
+    ...settings,
+    activationEmail: email,
+    activationLastRequest: pendingRequest
+  });
+  appendAuditLog({
+    actor: payload.actor,
+    action: "Generated activation request",
+    details: `Activation request ${pendingRequest.activationCode} generated and opened as a browser email draft for ${pendingRequest.businessName}.`
+  });
+  await shell.openExternal(buildActivationEmailUrl(pendingRequest));
+  return { success: true, needsConfirmation: true, request: redactActivationRequest(pendingRequest), settings: saved };
+}
+
+function normalizeActivationCode(value) {
+  return String(value || "").replace(/[^a-z0-9]/gi, "").toUpperCase();
+}
+
+function redactActivationRequest(request) {
+  const safeRequest = normalizeActivationRequest(request);
+  if (!safeRequest) return null;
+  const { activationCode, ...redacted } = safeRequest;
+  return redacted;
+}
+
+async function buildActivationRequest({ email, businessName }) {
+  const generatedAt = new Date().toISOString();
+  const hardware = await getMotherboardSerial();
+  return {
+    email,
+    businessName,
+    generatedAt,
+    activationCode: buildActivationCode({
+      serial: hardware.serial,
+      businessName,
+      generatedAt
+    }),
+    hardwareSource: hardware.source
+  };
+}
+
+function buildActivationEmailUrl(request) {
+  const subject = `POS Activation Request - ${request.businessName}`;
+  const body = [
+    "Activation request generated from POS.",
+    "",
+    "Fill in the primary/client email address in the To field, then send this activation email.",
+    "",
+    `Business: ${request.businessName}`,
+    `Generated: ${request.generatedAt}`,
+    `Hardware Source: ${request.hardwareSource}`,
+    `Activation Code: ${request.activationCode}`,
+    "",
+    "Please keep this activation number safe. Each client receives one activation for their PC.",
+    "Use this activation request to prepare the client license."
+  ].join("\n");
+  const encodedSubject = encodeURIComponent(subject);
+  const encodedBody = encodeURIComponent(body);
+  const domain = request.email.split("@")[1]?.toLowerCase() || "";
+
+  if (domain === "gmail.com" || domain === "googlemail.com") {
+    return `https://mail.google.com/mail/?view=cm&fs=1&su=${encodedSubject}&body=${encodedBody}`;
+  }
+  if (["outlook.com", "hotmail.com", "live.com", "msn.com"].includes(domain)) {
+    return `https://outlook.live.com/mail/0/deeplink/compose?subject=${encodedSubject}&body=${encodedBody}`;
+  }
+  if (domain === "yahoo.com" || domain === "ymail.com" || domain === "rocketmail.com") {
+    return `https://compose.mail.yahoo.com/?subject=${encodedSubject}&body=${encodedBody}`;
+  }
+  return `https://mail.google.com/mail/?view=cm&fs=1&su=${encodedSubject}&body=${encodedBody}`;
 }
 
 function extractAuditMeta(payload = {}) {
@@ -1450,6 +1684,18 @@ ipcMain.handle("settings:save", (_event, settings) => {
     action: auditMeta.action === "Activity" ? "Saved settings" : auditMeta.action
   });
   return saved;
+});
+
+ipcMain.handle("activation:request", async (_event, payload = {}) => {
+  const email = String(payload.email || "").trim();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return { success: false, error: "Enter a valid user email address." };
+  }
+  try {
+    return await createActivationRequest(payload);
+  } catch (error) {
+    return { success: false, error: error.message || "Unable to generate activation request." };
+  }
 });
 
 ipcMain.handle("database:select-file", async () => {

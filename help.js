@@ -101,6 +101,11 @@
     </section>
 
     <section class="settings-section help-section">
+      <h2>Activation</h2>
+      <p>Activation generates a PC-specific request for a client license. It uses the Windows motherboard serial number, current date and time, and Business name. POS opens the backup email account in the browser with the activation message ready as a draft. The To field is left empty so the user can enter the primary/client email, send it, then copy the activation number into POS for verification.</p>
+    </section>
+
+    <section class="settings-section help-section">
       <h2>Payment Methods</h2>
       <p>Payment Methods controls what cashiers can select during checkout. Cash, Debit Card, and Credit Card are the default options. Add or disable methods based on what the store accepts.</p>
       <p>Sales tax rate is also managed here and is applied to taxable items during each sale.</p>

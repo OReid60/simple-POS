@@ -5,6 +5,7 @@ contextBridge.exposeInMainWorld("simplePOS", {
   getStartupSettings: () => ipcRenderer.invoke("settings:startup"),
   getSettings: () => ipcRenderer.invoke("settings:get"),
   saveSettings: (settings) => ipcRenderer.invoke("settings:save", settings),
+  requestActivation: (payload) => ipcRenderer.invoke("activation:request", payload),
   selectDatabaseFile: () => ipcRenderer.invoke("database:select-file"),
   selectDatabaseFolder: () => ipcRenderer.invoke("database:select-folder"),
   configureDatabase: (payload) => ipcRenderer.invoke("database:configure", payload),
