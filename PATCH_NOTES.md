@@ -2,6 +2,117 @@
 
 These notes summarize application changes from `1.0.0` through the current build. The repository does not currently contain tags for every historical build, so early `1.0.x` and `1.1.x` notes are grouped from the accumulated project change history. Recent builds are listed individually where the exact version is known.
 
+## 1.2.11
+
+- Renamed the Receipt Builder button from Save Receipt Settings to Save Receipt Layout.
+
+## 1.2.10
+
+- Moved Reset Receipt inside the collapsed Receipt Builder body.
+- Removed Save Printer Settings from the Business section and placed it with Printer Settings.
+- Added an optional Additional Address control to Business settings.
+- Additional Address can be toggled on and appears as an extra receipt address line when enabled.
+- Kept the main Save Settings button at the bottom right of the Settings page outside User Account.
+
+## 1.2.9
+
+- Removed the floating behavior from the main Save Settings button.
+- Moved the Save Settings status message back into the normal Settings page flow.
+- Receipt Builder now opens collapsed by default.
+
+## 1.2.8
+
+- Moved Footer settings back into the Receipt Builder field list.
+- Placed the Footer message text box below the Footer settings row.
+- Kept Footer message editing grouped with the receipt builder instead of the top options area.
+
+## 1.2.7
+
+- Moved Footer receipt controls directly below the Footer message text box.
+- Removed Footer from the main Receipt Builder field list so footer settings are grouped with the footer text.
+- Kept Footer visibility, size, bold, and line settings saved in the receipt template.
+
+## 1.2.6
+
+- Removed the Logo size dropdown from Receipt Builder.
+- Footer message now uses the full Receipt Builder options row.
+- Receipt Builder keeps existing/default logo sizing internally without showing a user-facing control.
+
+## 1.2.5
+
+- Added Expand/Collapse control to the Receipt Builder inside Printer Settings.
+- Added a dedicated Save Receipt Settings button for Receipt Builder changes.
+- Changed Receipt Builder footer entry to a multi-line text box.
+- Tightened Receipt Builder row layout so Size, Bold, and Line controls sit closer to each section description.
+
+## 1.2.4
+
+- Saved future Receipt Builder responsive stacking task in the README focus path.
+- Hid Receipt Builder Move controls for now.
+- Removed Left/Center/Right alignment controls from Receipt Builder rows for now.
+- Simplified Receipt Builder rows so remaining controls fit more cleanly.
+
+## 1.2.3
+
+- Removed horizontal scrolling from the Live Receipt Preview.
+- Receipt preview rows now wrap long labels and values instead of widening the preview pane.
+- Live Receipt Preview now only scrolls vertically when receipt content exceeds the preview height.
+
+## 1.2.2
+
+- Updated Receipt Builder left-side section list to fit its rows without an internal vertical scrollbar.
+- Widened Receipt Builder row controls so labels, alignment, size, Bold, and Line settings fit more cleanly.
+- Receipt Builder now lets the Settings window/page handle vertical scrolling instead of the left list scrolling independently.
+
+## 1.2.1
+
+- Receipt Builder now keeps Business Name bold by default with divider line disabled.
+- Receipt Builder now removes Bold and Line controls from Logo.
+- Receipt Builder now keeps Business Address and Business Contact bold by default with divider lines disabled.
+- Receipt Builder now hides Bold and Line controls from Business Address and Business Contact.
+- Saved receipt templates are normalized so older templates inherit the corrected header styling automatically.
+
+## 1.2.0
+
+- Matched the Receipt Builder section list height to the Live Receipt Preview height.
+- Removed Move controls from Business Name, Logo, and Address receipt sections so those header rows stay fixed.
+- Removed Address and Contact labels from receipt preview, Complete Sale receipt, printed receipt, and WhatsApp receipt output.
+- Version numbering rolled from `1.1.99` to `1.2.0`.
+
+## 1.1.99
+
+- Updated startup database backup defaults by detected database mode: Host PCs default off and Client PCs default on.
+- Admin/Owner startup backup toggle choices are preserved after they manually change the setting.
+- Added an Open Backup Location button to Database Mode.
+
+## 1.1.98
+
+- Added a Database Mode toggle for backing up the database on startup.
+- Startup database backup is now off by default.
+- Startup backup only runs when the admin/owner enables the Database Mode toggle.
+- End-of-day database backup behavior remains available after report confirmation.
+
+## 1.1.97
+
+- Added a dedicated Save Printer Settings button inside Printer Settings.
+- Printer Settings now forces full-width display so Receipt Builder cannot collapse into a narrow column.
+- Improved Receipt Builder containment so rows, footer controls, and live preview stay inside the Printer Settings card.
+- Added an inline Printer Settings save status message separate from the global Settings save status.
+
+## 1.1.96
+
+- Updated Printer Settings to open full-width so Receipt Builder has enough working space.
+- Improved Receipt Builder layout with side-by-side logo/footer controls, cleaner header spacing, wider section controls, and a larger live preview.
+- Existing saved Settings layouts now normalize Printer Settings to full-width automatically.
+
+## 1.1.95
+
+- Added a Receipt Builder inside Settings > Printer Settings.
+- Admin/owner can now reorder receipt sections and toggle section visibility.
+- Receipt Builder supports alignment, font size, bold text, divider lines, logo size, and footer message controls.
+- Added a live receipt preview inside Settings.
+- Complete Sale preview, printed receipts, and WhatsApp receipt text now follow the saved receipt template.
+
 ## 1.1.94
 
 - Updated database backups to run for the actual detected database mode.

@@ -34,11 +34,42 @@ if (!hasSingleInstanceLock) {
   });
 }
 
+const defaultReceiptTemplate = {
+  logoSize: "medium",
+  footerText: "Thank you for shopping with us.",
+  sections: [
+    { id: "businessName", visible: true, align: "center", size: "large", bold: true, divider: false },
+    { id: "logo", visible: true, align: "center", size: "normal", bold: false, divider: false },
+    { id: "address", visible: true, align: "left", size: "normal", bold: true, divider: false },
+    { id: "contact", visible: true, align: "left", size: "normal", bold: true, divider: false },
+    { id: "receiptNumber", visible: true, align: "left", size: "normal", bold: true, divider: true },
+    { id: "date", visible: true, align: "left", size: "normal", bold: true, divider: true },
+    { id: "cashier", visible: true, align: "left", size: "normal", bold: true, divider: true },
+    { id: "payment", visible: true, align: "left", size: "normal", bold: true, divider: true },
+    { id: "items", visible: true, align: "left", size: "normal", bold: false, divider: true },
+    { id: "subtotal", visible: true, align: "left", size: "normal", bold: true, divider: true },
+    { id: "tax", visible: true, align: "left", size: "normal", bold: true, divider: true },
+    { id: "discount", visible: true, align: "left", size: "normal", bold: true, divider: true },
+    { id: "total", visible: true, align: "left", size: "large", bold: true, divider: true },
+    { id: "tendered", visible: true, align: "left", size: "normal", bold: true, divider: true },
+    { id: "change", visible: true, align: "left", size: "normal", bold: true, divider: true },
+    { id: "footer", visible: true, align: "center", size: "normal", bold: true, divider: false }
+  ]
+};
+const receiptSectionForcedStyles = {
+  businessName: { bold: true, divider: false },
+  logo: { bold: false, divider: false },
+  address: { bold: true, divider: false },
+  contact: { bold: true, divider: false }
+};
+
 // Default settings are the out-of-box values used before a database or setup exists.
 const defaultSettings = {
   businessName: "",
   businessLogo: "",
   businessAddress: "",
+  businessAdditionalAddressEnabled: false,
+  businessAdditionalAddress: "",
   whatsappNumber: "",
   taxRate: 0.0825,
   receiptPrintingEnabled: false,
@@ -54,6 +85,9 @@ const defaultSettings = {
   printerName: "",
   paperSize: "letter",
   silent: false,
+  receiptTemplate: defaultReceiptTemplate,
+  backupOnStartupEnabled: false,
+  backupOnStartupConfigured: false,
   themeGradient: "lotus",
   setupComplete: false,
   databaseMode: "",
@@ -84,13 +118,14 @@ const defaultSettings = {
     { id: "business", width: "full" },
     { id: "inventory", width: "half" },
     { id: "payments", width: "half" },
-    { id: "receipt", width: "half" },
+    { id: "receipt", width: "full" },
     { id: "database", width: "full" },
     { id: "staff", width: "full" }
   ],
   businessLayout: [
     { id: "name", width: "full" },
     { id: "address", width: "full" },
+    { id: "additionalAddress", width: "full" },
     { id: "logo", width: "half" },
     { id: "whatsapp", width: "half" },
     { id: "theme", width: "half" },
@@ -522,6 +557,9 @@ function readSettings() {
       permissions: normalizePermissions(merged.permissions),
       paymentMethods: normalizePaymentMethods(merged.paymentMethods),
       businessLayout: normalizeBusinessLayout(merged.businessLayout),
+      receiptTemplate: normalizeReceiptTemplate(merged.receiptTemplate),
+      backupOnStartupConfigured: merged.backupOnStartupConfigured === true,
+      backupOnStartupEnabled: normalizeBackupOnStartup(merged),
       themeGradient: normalizeThemeGradient(merged.themeGradient),
       nextOrderNumber: normalizeNextOrderNumber(merged.nextOrderNumber, merged.invoices),
       holdRetentionEnabled: merged.holdRetentionEnabled !== false,
@@ -547,6 +585,10 @@ function saveSettings(settings) {
   const nextSettings = {
     ...defaultSettings,
     ...settings,
+    businessName: String(settings.businessName || "").trim(),
+    businessAddress: String(settings.businessAddress || "").trim(),
+    businessAdditionalAddressEnabled: settings.businessAdditionalAddressEnabled === true,
+    businessAdditionalAddress: String(settings.businessAdditionalAddress || "").trim(),
     taxRate: normalizeTaxRate(settings.taxRate),
     users: normalizeUsers(settings.users),
     permissions: normalizePermissions(settings.permissions),
@@ -555,6 +597,9 @@ function saveSettings(settings) {
     ctrlEscShortcutEnabled: settings.ctrlEscShortcutEnabled !== false,
     inventoryFieldVisibility: normalizeInventoryFieldVisibility(settings.inventoryFieldVisibility),
     businessLayout: normalizeBusinessLayout(settings.businessLayout),
+    receiptTemplate: normalizeReceiptTemplate(settings.receiptTemplate),
+    backupOnStartupEnabled: settings.backupOnStartupEnabled === true,
+    backupOnStartupConfigured: settings.backupOnStartupConfigured === true,
     themeGradient: normalizeThemeGradient(settings.themeGradient),
     setupComplete: settings.setupComplete === true,
     nextOrderNumber: normalizeNextOrderNumber(settings.nextOrderNumber, settings.invoices),
@@ -668,6 +713,11 @@ function normalizeSaleCompleteEnterAction(value) {
   return ["startNextSale", "shareWhatsApp", "hold"].includes(action) ? action : defaultSettings.saleCompleteEnterAction;
 }
 
+function normalizeBackupOnStartup(settings) {
+  if (settings.backupOnStartupConfigured === true) return settings.backupOnStartupEnabled === true;
+  return settings.databaseMode === "client";
+}
+
 function normalizeBusinessLayout(layout) {
   const defaultLayout = defaultSettings.businessLayout;
   const validIds = defaultLayout.map((item) => item.id);
@@ -744,6 +794,8 @@ function normalizeInvoice(invoice) {
   return {
     businessName: String(source.businessName || defaultSettings.businessName).trim(),
     businessAddress: String(source.businessAddress || "").trim(),
+    businessAdditionalAddressEnabled: source.businessAdditionalAddressEnabled === true,
+    businessAdditionalAddress: String(source.businessAdditionalAddress || "").trim(),
     whatsappNumber: String(source.whatsappNumber || "").trim(),
     orderNumber: source.orderNumber,
     date: String(source.date || ""),
@@ -1261,7 +1313,9 @@ if (hasSingleInstanceLock) {
   app.whenReady().then(() => {
     ensureDatabaseSetup();
     createWindow();
-    scheduleDatabaseBackup("daily-startup", { daily: true });
+    if (readSettings().backupOnStartupEnabled === true) {
+      scheduleDatabaseBackup("daily-startup", { daily: true });
+    }
     updateWindowsShortcuts();
   });
 }
@@ -1473,6 +1527,13 @@ ipcMain.handle("database:configure", (_event, payload = {}) => {
 
 ipcMain.handle("database:backup", (_event, payload = {}) => {
   return scheduleDatabaseBackup(payload.reason || "manual", { daily: payload.daily === true });
+});
+
+ipcMain.handle("database:open-backup-location", async () => {
+  const backupDir = path.join(getDatabaseDirectory(), "Backups");
+  fs.mkdirSync(backupDir, { recursive: true });
+  await shell.openPath(backupDir);
+  return { success: true, path: backupDir };
 });
 
 ipcMain.handle("audit:log", (_event, entry) => appendAuditLog(entry));
@@ -2324,29 +2385,82 @@ function parseMoney(value) {
   return Number(String(value || "0").replace(/[^0-9.-]+/g, "")) || 0;
 }
 
+function normalizeReceiptTemplate(template) {
+  const receiptSectionIds = defaultReceiptTemplate.sections.map((section) => section.id);
+  const sourceSections = Array.isArray(template?.sections) ? template.sections : [];
+  const seen = new Set();
+  const sections = sourceSections
+    .map((section) => ({
+      id: String(section?.id || "").trim(),
+      visible: section?.visible !== false,
+      align: ["left", "center", "right"].includes(section?.align) ? section.align : "left",
+      size: ["small", "normal", "large"].includes(section?.size) ? section.size : "normal",
+      bold: section?.bold === true,
+      divider: section?.divider !== false
+    }))
+    .filter((section) => {
+      if (!receiptSectionIds.includes(section.id) || seen.has(section.id)) return false;
+      seen.add(section.id);
+      return true;
+    });
+  defaultReceiptTemplate.sections.forEach((section) => {
+    if (!seen.has(section.id)) sections.push({ ...section });
+  });
+  return {
+    logoSize: ["small", "medium", "large"].includes(template?.logoSize) ? template.logoSize : "medium",
+    footerText: String(template?.footerText || defaultReceiptTemplate.footerText),
+    sections: sections.map((section) => ({
+      ...section,
+      ...(receiptSectionForcedStyles[section.id] || {})
+    }))
+  };
+}
+
+function renderReceiptPrintPair(label, value) {
+  return `<div class="row"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`;
+}
+
+function renderReceiptPrintValue(value) {
+  return `<p class="receipt-value">${escapeHtml(value).replace(/\n/g, "<br>")}</p>`;
+}
+
+function getReceiptPrintSectionContent(section, payload, template) {
+  const content = {
+    businessName: `<h1>${escapeHtml(payload.businessName || defaultSettings.businessName || "POS")}</h1>`,
+    logo: payload.businessLogo ? `<img class="logo logo-${escapeHtml(template.logoSize)}" src="${escapeHtml(payload.businessLogo)}" alt="">` : "",
+    address: renderReceiptPrintValue(payload.businessAddress || "Business address"),
+    contact: renderReceiptPrintValue(payload.whatsappNumber || "Contact #"),
+    receiptNumber: renderReceiptPrintPair("Receipt #", `#${payload.orderNumber}`),
+    date: renderReceiptPrintPair("Date", payload.date),
+    cashier: renderReceiptPrintPair("Cashier", payload.cashier),
+    payment: renderReceiptPrintPair("Payment", payload.paymentMethod),
+    items: (payload.items || []).map((item) => renderReceiptPrintPair(`${item.quantity} x ${item.name}`, item.lineTotal)).join(""),
+    subtotal: renderReceiptPrintPair("Subtotal", payload.subtotal),
+    tax: renderReceiptPrintPair("Tax", payload.tax),
+    discount: parseMoney(payload.discount) > 0 ? renderReceiptPrintPair(`Discount${payload.discountPercent ? ` (${payload.discountPercent})` : ""}`, `-${payload.discount}`) : "",
+    total: renderReceiptPrintPair("Total", payload.total),
+    tendered: renderReceiptPrintPair("Tendered", payload.tendered),
+    change: renderReceiptPrintPair("Change", payload.change),
+    footer: `<p class="footer">${escapeHtml(template.footerText || "")}</p>`
+  };
+  return content[section.id] || "";
+}
+
+function renderReceiptPrintSections(payload) {
+  const template = normalizeReceiptTemplate(payload.receiptTemplate);
+  return template.sections
+    .filter((section) => section.visible)
+    .map((section) => {
+      const content = getReceiptPrintSectionContent(section, payload, template);
+      if (!content) return "";
+      return `<section class="receipt-section align-${section.align} size-${section.size} ${section.bold ? "is-bold" : ""} ${section.divider ? "has-divider" : ""}">${content}</section>`;
+    })
+    .join("");
+}
+
 function buildReceiptHtml(payload) {
   const paperSize = payload.paperSize || "letter";
   const width = paperSize === "letter" ? "7.5in" : paperSize === "receipt-58" ? "54mm" : "72mm";
-  const logo = payload.businessLogo
-    ? `<img class="logo" src="${escapeHtml(payload.businessLogo)}" alt="">`
-    : "";
-  const rows = payload.items
-    .map(
-      (item) => `
-        <div class="row">
-          <span>${escapeHtml(item.quantity)} x ${escapeHtml(item.name)}</span>
-          <strong>${escapeHtml(item.lineTotal)}</strong>
-        </div>
-      `
-    )
-    .join("");
-  const receiptMeta = [
-    `Address: ${payload.businessAddress || "Business address"}`,
-    `Contact: ${payload.whatsappNumber || "Contact #"}`,
-    `Receipt #${payload.orderNumber}`,
-    `Date: ${payload.date}`,
-    `Cashier: ${payload.cashier}`
-  ].map(escapeHtml).join("<br>");
 
   return `
     <!doctype html>
@@ -2357,26 +2471,30 @@ function buildReceiptHtml(payload) {
           @page { size: ${paperSize === "letter" ? "letter" : "auto"}; margin: 0; }
           body { margin: 0; font-family: Arial, sans-serif; color: #111; }
           .receipt { width: ${width}; padding: 12px; }
-          .logo { max-width: 120px; max-height: 70px; display: block; margin: 0 0 8px; }
-          h1 { margin: 0 0 4px; font-size: 20px; }
-          p { margin: 0 0 12px; font-size: 12px; }
+          .logo { display: block; margin: 0 auto 8px; object-fit: contain; }
+          .logo-small { max-width: 72px; max-height: 48px; }
+          .logo-medium { max-width: 120px; max-height: 70px; }
+          .logo-large { max-width: 170px; max-height: 96px; }
+          h1 { margin: 0; font-size: 20px; }
+          p { margin: 0; font-size: 12px; }
+          .receipt-value { font-weight: inherit; }
+          .receipt-section { padding: 5px 0; font-size: 12px; }
+          .receipt-section.has-divider { border-bottom: 1px dashed #ccc; }
+          .align-left { text-align: left; }
+          .align-center { text-align: center; }
+          .align-right { text-align: right; }
+          .size-small { font-size: 11px; }
+          .size-normal { font-size: 12px; }
+          .size-large { font-size: 16px; }
+          .is-bold, .is-bold strong { font-weight: 700; }
           .row { display: flex; justify-content: space-between; gap: 12px; padding: 6px 0; border-bottom: 1px dashed #ccc; font-size: 12px; }
-          .total { font-size: 16px; font-weight: 700; border-bottom: 0; padding-top: 10px; }
+          .receipt-section .row { border-bottom: 0; }
+          .footer { margin-top: 8px; }
         </style>
       </head>
       <body>
         <main class="receipt">
-          ${logo}
-          <h1>${escapeHtml(payload.businessName || defaultSettings.businessName)}</h1>
-          <p>${receiptMeta}</p>
-          ${rows}
-          <div class="row"><span>Subtotal</span><strong>${escapeHtml(payload.subtotal)}</strong></div>
-          <div class="row"><span>Tax</span><strong>${escapeHtml(payload.tax)}</strong></div>
-          ${parseMoney(payload.discount) > 0 ? `<div class="row"><span>Discount ${payload.discountPercent ? `(${escapeHtml(payload.discountPercent)})` : ""}</span><strong>-${escapeHtml(payload.discount)}</strong></div>` : ""}
-          <div class="row total"><span>Total</span><strong>${escapeHtml(payload.total)}</strong></div>
-          <div class="row"><span>Payment</span><strong>${escapeHtml(payload.paymentMethod)}</strong></div>
-          <div class="row"><span>Tendered</span><strong>${escapeHtml(payload.tendered)}</strong></div>
-          <div class="row"><span>Change</span><strong>${escapeHtml(payload.change)}</strong></div>
+          ${renderReceiptPrintSections(payload)}
         </main>
       </body>
     </html>
@@ -2384,32 +2502,27 @@ function buildReceiptHtml(payload) {
 }
 
 function buildWhatsappReceipt(payload) {
-  const items = payload.items
-    .map((item) => `${item.quantity} x ${item.name} - ${item.lineTotal}`)
-    .join("\n");
-  const businessHeader = [
-    payload.businessName || defaultSettings.businessName,
-    `Address: ${payload.businessAddress || "Business address"}`,
-    `Contact: ${payload.whatsappNumber || "Contact #"}`,
-    `Receipt #${payload.orderNumber}`,
-    `Date: ${payload.date}`
-  ].filter(Boolean);
-
-  return [
-    ...businessHeader,
-    "",
-    items,
-    "",
-    `Subtotal: ${payload.subtotal}`,
-    `Tax: ${payload.tax}`,
-    ...(parseMoney(payload.discount) > 0 ? [`Discount${payload.discountPercent ? ` (${payload.discountPercent})` : ""}: -${payload.discount}`] : []),
-    `Total: ${payload.total}`,
-    `Payment: ${payload.paymentMethod}`,
-    `Tendered: ${payload.tendered}`,
-    `Change: ${payload.change}`,
-    "",
-    "Thank you for shopping with us."
-  ].join("\n");
+  const template = normalizeReceiptTemplate(payload.receiptTemplate);
+  const lines = [];
+  template.sections.filter((section) => section.visible).forEach((section) => {
+    if (section.id === "logo") return;
+    if (section.id === "businessName") lines.push(payload.businessName || defaultSettings.businessName || "POS");
+    if (section.id === "address") lines.push(...String(payload.businessAddress || "Business address").split(/\r?\n/).filter(Boolean));
+    if (section.id === "contact") lines.push(payload.whatsappNumber || "Contact #");
+    if (section.id === "receiptNumber") lines.push(`Receipt #${payload.orderNumber}`);
+    if (section.id === "date") lines.push(`Date: ${payload.date}`);
+    if (section.id === "cashier") lines.push(`Cashier: ${payload.cashier}`);
+    if (section.id === "payment") lines.push(`Payment: ${payload.paymentMethod}`);
+    if (section.id === "items") lines.push("", ...(payload.items || []).map((item) => `${item.quantity} x ${item.name} - ${item.lineTotal}`), "");
+    if (section.id === "subtotal") lines.push(`Subtotal: ${payload.subtotal}`);
+    if (section.id === "tax") lines.push(`Tax: ${payload.tax}`);
+    if (section.id === "discount" && parseMoney(payload.discount) > 0) lines.push(`Discount${payload.discountPercent ? ` (${payload.discountPercent})` : ""}: -${payload.discount}`);
+    if (section.id === "total") lines.push(`Total: ${payload.total}`);
+    if (section.id === "tendered") lines.push(`Tendered: ${payload.tendered}`);
+    if (section.id === "change") lines.push(`Change: ${payload.change}`);
+    if (section.id === "footer" && template.footerText) lines.push("", template.footerText);
+  });
+  return lines.join("\n").replace(/\n{3,}/g, "\n\n");
 }
 
 function escapeHtml(value) {

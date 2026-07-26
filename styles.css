@@ -775,12 +775,108 @@ dialog::backdrop {
   padding: 18px;
 }
 
+.receipt-template-section {
+  padding: 5px 0;
+}
+
+.receipt-template-section.has-divider {
+  border-bottom: 1px dashed var(--line);
+}
+
+.receipt-template-section.align-left {
+  text-align: left;
+}
+
+.receipt-template-section.align-center {
+  text-align: center;
+}
+
+.receipt-template-section.align-right {
+  text-align: right;
+}
+
+.receipt-template-section.size-small {
+  font-size: 13px;
+}
+
+.receipt-template-section.size-normal {
+  font-size: 16px;
+}
+
+.receipt-template-section.size-large {
+  font-size: 19px;
+}
+
+.receipt-template-section.is-bold,
+.receipt-template-section.is-bold strong {
+  font-weight: 900;
+}
+
+.receipt-template-logo {
+  display: block;
+  object-fit: contain;
+}
+
+.align-left .receipt-template-logo {
+  margin: 0 auto 0 0;
+}
+
+.align-center .receipt-template-logo {
+  margin: 0 auto;
+}
+
+.align-right .receipt-template-logo {
+  margin: 0 0 0 auto;
+}
+
+.receipt-logo-small {
+  max-width: 72px;
+  max-height: 48px;
+}
+
+.receipt-logo-medium {
+  max-width: 120px;
+  max-height: 70px;
+}
+
+.receipt-logo-large {
+  max-width: 170px;
+  max-height: 96px;
+}
+
+.receipt-template-logo-placeholder {
+  display: inline-grid;
+  place-items: center;
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  background: #f7faf8;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 900;
+}
+
 .receipt-row {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
   gap: 16px;
   padding: 8px 0;
   border-bottom: 1px dashed var(--line);
+}
+
+.receipt-row span,
+.receipt-row strong {
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.receipt-row strong {
+  text-align: right;
+}
+
+.receipt-template-section .receipt-row {
+  border-bottom: 0;
 }
 
 .vertical-report-list {
@@ -986,7 +1082,7 @@ dialog::backdrop {
 }
 
 .settings-section-actions,
-.settings-floating-actions {
+.settings-save-actions {
   grid-template-columns: minmax(220px, 360px);
   justify-content: end;
   justify-self: end;
@@ -998,23 +1094,21 @@ dialog::backdrop {
   box-shadow: none;
 }
 
-.settings-floating-actions {
-  position: fixed;
-  right: max(22px, calc((100vw - 1060px) / 2 + 22px));
-  bottom: 22px;
-  z-index: 60;
+.settings-save-actions {
+  order: 999;
+  grid-column: 1 / -1;
 }
 
 .settings-section-actions .checkout-button,
-.settings-floating-actions .checkout-button {
-  box-shadow: 0 16px 36px rgba(23, 33, 29, 0.22);
+.settings-save-actions .checkout-button {
+  box-shadow: none;
 }
 
 .app-settings-window #saveStatus {
-  position: fixed;
-  right: max(22px, calc((100vw - 1060px) / 2 + 22px));
-  bottom: 78px;
-  z-index: 61;
+  order: 1000;
+  grid-column: 1 / -1;
+  position: static;
+  justify-self: end;
   width: min(360px, 100%);
   min-height: 0;
   margin: 0;
@@ -1049,6 +1143,18 @@ dialog::backdrop {
   padding: 18px;
   background: var(--surface);
   box-shadow: 0 10px 28px rgba(23, 33, 29, 0.08);
+}
+
+.settings-section-receipt {
+  grid-column: 1 / -1;
+  width: 100%;
+  max-width: none;
+}
+
+.settings-section-receipt > label,
+.settings-section-receipt > .printer-refresh-button,
+.settings-section-receipt > .printer-status-message {
+  max-width: 520px;
 }
 
 .collapsible-section-header {
@@ -1153,7 +1259,7 @@ dialog::backdrop {
 }
 
 .database-actions {
-  grid-template-columns: minmax(120px, 0.8fr) minmax(180px, 1.2fr);
+  grid-template-columns: minmax(110px, 0.7fr) minmax(180px, 1fr) minmax(180px, 1fr);
 }
 
 .settings-section h2 {
@@ -1251,6 +1357,11 @@ dialog::backdrop {
   width: 100%;
 }
 
+.compact-title-actions {
+  flex: 0 0 auto;
+  width: auto;
+}
+
 .dashboard-action-buttons {
   display: flex;
   flex: 0 0 auto;
@@ -1301,6 +1412,143 @@ dialog::backdrop {
   color: #075f45;
   font-size: 14px;
   font-weight: 900;
+}
+
+.receipt-builder {
+  display: grid;
+  gap: 12px;
+  margin-top: 20px;
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+}
+
+.receipt-builder-body {
+  display: grid;
+  gap: 12px;
+}
+
+.receipt-builder > .section-title-row {
+  margin-bottom: 2px;
+}
+
+.receipt-builder .settings-subsection-title {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  font-size: 18px;
+}
+
+.receipt-builder-options {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+  align-items: end;
+}
+
+.receipt-builder-options label {
+  margin-bottom: 0;
+}
+
+.receipt-builder-options textarea {
+  min-height: 82px;
+  resize: vertical;
+  line-height: 1.35;
+}
+
+.receipt-builder-layout {
+  display: grid;
+  grid-template-columns: minmax(620px, 1fr) minmax(320px, 420px);
+  gap: 16px;
+  align-items: start;
+  min-width: 0;
+}
+
+.receipt-template-list {
+  display: grid;
+  gap: 8px;
+  height: auto;
+  max-height: none;
+  overflow: visible;
+  min-width: 0;
+}
+
+.receipt-footer-message-row {
+  margin-top: 10px;
+}
+
+.receipt-template-row {
+  display: grid;
+  grid-template-columns: minmax(180px, 0.72fr) 96px minmax(74px, auto) minmax(68px, auto);
+  gap: 10px;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px;
+  background: #fbfcfa;
+  min-width: 0;
+}
+
+.receipt-template-row label:first-child {
+  justify-self: start;
+}
+
+.receipt-template-row select {
+  min-height: 36px;
+  padding: 0 8px;
+}
+
+.compact-checkbox {
+  min-height: 0;
+  margin: 0;
+  color: var(--ink);
+  font-size: 13px;
+}
+
+.receipt-template-preview {
+  position: sticky;
+  top: 16px;
+  display: grid;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px;
+  background: #fff;
+  box-shadow: 0 10px 28px rgba(23, 33, 29, 0.07);
+}
+
+.receipt-template-preview > strong {
+  font-size: 14px;
+}
+
+#receiptTemplatePreview {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px;
+  background: #fbfcfa;
+  height: 620px;
+  max-height: 620px;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.printer-settings-actions {
+  grid-template-columns: minmax(220px, 320px);
+  justify-content: end;
+  margin-top: 14px;
+}
+
+.receipt-settings-actions {
+  grid-template-columns: minmax(220px, 320px);
+  justify-content: end;
+  margin-top: 4px;
+}
+
+.printer-save-status {
+  min-height: 22px;
+  margin: 0;
+  color: var(--accent);
+  font-weight: 900;
+  text-align: right;
 }
 
 .inventory-list {
@@ -2074,7 +2322,7 @@ dialog::backdrop {
   }
 
   .settings-section-actions,
-  .settings-floating-actions,
+  .settings-save-actions,
   .app-settings-window #saveStatus {
     justify-self: end;
     width: min(360px, 100%);
@@ -2096,6 +2344,18 @@ dialog::backdrop {
 
   .section-title-actions {
     flex-wrap: wrap;
+  }
+
+  .receipt-builder-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .receipt-builder-options {
+    grid-template-columns: 1fr;
+  }
+
+  .receipt-template-preview {
+    position: static;
   }
 }
 
@@ -2181,6 +2441,7 @@ dialog::backdrop {
   .purchase-payment-row,
   .purchase-status-card,
   .purchase-item-row,
+  .receipt-template-row,
   .purchase-actions {
     grid-template-columns: 1fr;
   }

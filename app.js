@@ -8,6 +8,35 @@ const defaultUsers = [
 ];
 
 const defaultProducts = [];
+const defaultReceiptTemplate = {
+  logoSize: "medium",
+  footerText: "Thank you for shopping with us.",
+  sections: [
+    { id: "businessName", visible: true, align: "center", size: "large", bold: true, divider: false },
+    { id: "logo", visible: true, align: "center", size: "normal", bold: false, divider: false },
+    { id: "address", visible: true, align: "left", size: "normal", bold: true, divider: false },
+    { id: "contact", visible: true, align: "left", size: "normal", bold: true, divider: false },
+    { id: "receiptNumber", visible: true, align: "left", size: "normal", bold: true, divider: true },
+    { id: "date", visible: true, align: "left", size: "normal", bold: true, divider: true },
+    { id: "cashier", visible: true, align: "left", size: "normal", bold: true, divider: true },
+    { id: "payment", visible: true, align: "left", size: "normal", bold: true, divider: true },
+    { id: "items", visible: true, align: "left", size: "normal", bold: false, divider: true },
+    { id: "subtotal", visible: true, align: "left", size: "normal", bold: true, divider: true },
+    { id: "tax", visible: true, align: "left", size: "normal", bold: true, divider: true },
+    { id: "discount", visible: true, align: "left", size: "normal", bold: true, divider: true },
+    { id: "total", visible: true, align: "left", size: "large", bold: true, divider: true },
+    { id: "tendered", visible: true, align: "left", size: "normal", bold: true, divider: true },
+    { id: "change", visible: true, align: "left", size: "normal", bold: true, divider: true },
+    { id: "footer", visible: true, align: "center", size: "normal", bold: true, divider: false }
+  ]
+};
+const receiptSectionIds = defaultReceiptTemplate.sections.map((section) => section.id);
+const receiptSectionForcedStyles = {
+  businessName: { bold: true, divider: false },
+  logo: { bold: false, divider: false },
+  address: { bold: true, divider: false },
+  contact: { bold: true, divider: false }
+};
 
 const state = {
   activeCategory: "All",
@@ -25,6 +54,8 @@ const state = {
     businessName: "",
     businessLogo: "",
     businessAddress: "",
+    businessAdditionalAddressEnabled: false,
+    businessAdditionalAddress: "",
     whatsappNumber: "",
     taxRate: 0.0825,
     receiptPrintingEnabled: false,
@@ -33,6 +64,7 @@ const state = {
     printerName: "",
     paperSize: "letter",
     silent: false,
+    receiptTemplate: defaultReceiptTemplate,
     themeGradient: "lotus",
     setupComplete: false,
     users: [...defaultUsers],
@@ -338,6 +370,78 @@ function getDiscountDraft() {
 // Receipt action buttons are driven by printer settings and the configured Enter-key default.
 function renderReceiptActions() {
   els.printReceipt.classList.toggle("is-hidden", !canUseReceiptPrinting());
+}
+
+function normalizeReceiptTemplate(template) {
+  const sourceSections = Array.isArray(template?.sections) ? template.sections : [];
+  const seen = new Set();
+  const sections = sourceSections
+    .map((section) => ({
+      id: String(section?.id || "").trim(),
+      visible: section?.visible !== false,
+      align: ["left", "center", "right"].includes(section?.align) ? section.align : "left",
+      size: ["small", "normal", "large"].includes(section?.size) ? section.size : "normal",
+      bold: section?.bold === true,
+      divider: section?.divider !== false
+    }))
+    .filter((section) => {
+      if (!receiptSectionIds.includes(section.id) || seen.has(section.id)) return false;
+      seen.add(section.id);
+      return true;
+    });
+  defaultReceiptTemplate.sections.forEach((section) => {
+    if (!seen.has(section.id)) sections.push({ ...section });
+  });
+  return {
+    logoSize: ["small", "medium", "large"].includes(template?.logoSize) ? template.logoSize : "medium",
+    footerText: String(template?.footerText || defaultReceiptTemplate.footerText),
+    sections: sections.map((section) => ({
+      ...section,
+      ...(receiptSectionForcedStyles[section.id] || {})
+    }))
+  };
+}
+
+function renderReceiptPair(label, value) {
+  return `<div class="receipt-row"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`;
+}
+
+function renderReceiptValue(value) {
+  return `<div class="receipt-template-text">${escapeHtml(value).replace(/\n/g, "<br>")}</div>`;
+}
+
+function getReceiptSectionContent(section, receipt, template) {
+  const content = {
+    businessName: `<div class="receipt-template-text">${escapeHtml(receipt.businessName || "Business")}</div>`,
+    logo: receipt.businessLogo ? `<img class="receipt-template-logo receipt-logo-${escapeHtml(template.logoSize)}" src="${escapeHtml(receipt.businessLogo)}" alt="">` : "",
+    address: renderReceiptValue(receipt.businessAddress || "Business address"),
+    contact: renderReceiptValue(receipt.whatsappNumber || "Contact #"),
+    receiptNumber: renderReceiptPair("Receipt #", `#${receipt.orderNumber}`),
+    date: renderReceiptPair("Date", receipt.date),
+    cashier: renderReceiptPair("Cashier", receipt.cashier),
+    payment: renderReceiptPair("Payment", receipt.paymentMethod),
+    items: (receipt.items || []).map((item) => renderReceiptPair(`${item.quantity} x ${item.name}`, item.lineTotal)).join(""),
+    subtotal: renderReceiptPair("Subtotal", receipt.subtotal),
+    tax: renderReceiptPair("Tax", receipt.tax),
+    discount: parseMoney(receipt.discount) > 0 ? renderReceiptPair(`Discount (${receipt.discountPercent || ""})`, `-${receipt.discount}`) : "",
+    total: renderReceiptPair("Total", receipt.total),
+    tendered: renderReceiptPair("Tendered", receipt.tendered),
+    change: renderReceiptPair("Change", receipt.change),
+    footer: `<div class="receipt-template-text">${escapeHtml(template.footerText || "")}</div>`
+  };
+  return content[section.id] || "";
+}
+
+function renderReceiptFromTemplate(receipt, template = state.settings.receiptTemplate) {
+  const safeTemplate = normalizeReceiptTemplate(template);
+  return safeTemplate.sections
+    .filter((section) => section.visible)
+    .map((section) => {
+      const content = getReceiptSectionContent(section, receipt, safeTemplate);
+      if (!content) return "";
+      return `<div class="receipt-template-section align-${section.align} size-${section.size} ${section.bold ? "is-bold" : ""} ${section.divider ? "has-divider" : ""}">${content}</div>`;
+    })
+    .join("");
 }
 
 function getSaleCompleteEnterAction() {
@@ -778,7 +882,9 @@ function buildSalePayload(orderNumber) {
 
   return {
     businessName: state.settings.businessName || "Simple POS",
-    businessAddress: state.settings.businessAddress || "",
+    businessAddress: getBusinessAddressForReceipt(),
+    businessAdditionalAddressEnabled: state.settings.businessAdditionalAddressEnabled === true,
+    businessAdditionalAddress: state.settings.businessAdditionalAddress || "",
     whatsappNumber: state.settings.whatsappNumber || "",
     orderNumber,
     date: new Date().toLocaleString(),
@@ -808,6 +914,14 @@ function buildSalePayload(orderNumber) {
   };
 }
 
+function getBusinessAddressForReceipt() {
+  const lines = [state.settings.businessAddress || ""];
+  if (state.settings.businessAdditionalAddressEnabled === true && state.settings.businessAdditionalAddress) {
+    lines.push(state.settings.businessAdditionalAddress);
+  }
+  return lines.map((line) => String(line || "").trim()).filter(Boolean).join("\n");
+}
+
 async function getReceiptOrderNumber() {
   if (state.restoredOrderNumber) return state.restoredOrderNumber;
   if (window.simplePOS) {
@@ -825,32 +939,7 @@ async function completeSale() {
   const isRestoredBill = Boolean(state.restoredOrderNumber);
   state.lastReceipt = buildSalePayload(orderNumber);
   state.lastReceipt.restoredBill = isRestoredBill;
-  const receiptRows = state.lastReceipt.items
-    .map(
-      (item) => `
-        <div class="receipt-row">
-          <span>${item.quantity} x ${escapeHtml(item.name)}</span>
-          <strong>${item.lineTotal}</strong>
-        </div>
-      `
-    )
-    .join("");
-
-  els.receiptBody.innerHTML = `
-    <div class="receipt-row"><span>Address</span><strong>${escapeHtml(state.lastReceipt.businessAddress || "Business address")}</strong></div>
-    <div class="receipt-row"><span>Contact</span><strong>${escapeHtml(state.lastReceipt.whatsappNumber || "Contact #")}</strong></div>
-    <div class="receipt-row"><span>Receipt #</span><strong>#${state.lastReceipt.orderNumber}</strong></div>
-    <div class="receipt-row"><span>Date</span><strong>${escapeHtml(state.lastReceipt.date)}</strong></div>
-    <div class="receipt-row"><span>Cashier</span><strong>${escapeHtml(state.lastReceipt.cashier)}</strong></div>
-    <div class="receipt-row"><span>Payment</span><strong>${escapeHtml(state.lastReceipt.paymentMethod)}</strong></div>
-    ${receiptRows}
-    <div class="receipt-row"><span>Subtotal</span><strong>${state.lastReceipt.subtotal}</strong></div>
-    <div class="receipt-row"><span>Tax</span><strong>${state.lastReceipt.tax}</strong></div>
-    ${parseMoney(state.lastReceipt.discount) > 0 ? `<div class="receipt-row"><span>Discount (${escapeHtml(state.lastReceipt.discountPercent || "")})</span><strong>-${state.lastReceipt.discount}</strong></div>` : ""}
-    <div class="receipt-row"><span>Total</span><strong>${state.lastReceipt.total}</strong></div>
-    <div class="receipt-row"><span>Tendered</span><strong>${state.lastReceipt.tendered}</strong></div>
-    <div class="receipt-row"><span>Change</span><strong>${state.lastReceipt.change}</strong></div>
-  `;
+  els.receiptBody.innerHTML = renderReceiptFromTemplate(state.lastReceipt);
 
   renderReceiptActions();
   els.receiptDialog.showModal();

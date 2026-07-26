@@ -9,6 +9,7 @@ contextBridge.exposeInMainWorld("simplePOS", {
   selectDatabaseFolder: () => ipcRenderer.invoke("database:select-folder"),
   configureDatabase: (payload) => ipcRenderer.invoke("database:configure", payload),
   backupDatabase: (payload) => ipcRenderer.invoke("database:backup", payload),
+  openBackupLocation: () => ipcRenderer.invoke("database:open-backup-location"),
   openSettings: () => ipcRenderer.invoke("settings:open"),
   openManagement: () => ipcRenderer.invoke("management:open"),
   openPurchasing: (payload) => ipcRenderer.invoke("purchasing:open", payload),

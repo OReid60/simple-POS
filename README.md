@@ -42,6 +42,7 @@ See [PATCH_NOTES.md](PATCH_NOTES.md) for the full application changelog from `1.
 1. Dashboard reporting polish: sales, cashier, payment, item/category, holds, voids, tax, discount, and purchase order totals.
 2. Inventory operations: barcode/SKU, reorder levels, low-stock dashboard card, and stock adjustment reasons.
 3. Reliability: backup/restore, database health checks, report exports, and admin recovery tools.
+4. Receipt Builder responsive mode: automatically stack Live Receipt Preview below the editor on smaller laptop widths.
 
 ## Settings
 
@@ -96,7 +97,8 @@ Log in as `admin`, open Settings, and manage:
 - Held bill confirmation remains visible for 15 seconds, then fades out
 - First startup creates a local SQLite database for inventory, categories, purchasing bills, reporting, settings, and users
 - Host/Client database mode is locked by default and can be unlocked in Settings with Ctrl+1 by an admin/owner
-- Database backups run in the background once daily on startup and after end-of-day confirmation; Client mode backs up the Host database, while Host mode saves a local Host backup
+- Database backups run in the background after end-of-day confirmation; startup backup defaults off on Host PCs and on for Client PCs unless Admin/Owner changes the Database Mode toggle
+- Database Mode includes an Open Backup Location button
 - SQLite database files are not directly managed through SQL Server Management Studio; SQL Server support would require a separate database migration
 - Reporting restores only one held bill at a time, closes immediately, and returns focus to Current Sale
 - Staff login shows a Held Receipts button that opens a restricted hold-only receipt list
@@ -202,6 +204,7 @@ Log in as `admin`, open Settings, and manage:
 - Inventory Import/Export button is hidden until that workflow is resumed
 - Purchasing / Company Bills now opens in its own window from the Dashboard Add Bill button
 - Settings Printer Settings section has inline printer refresh, clearer printer status, and floating Save Settings controls
+- Printer Settings includes a Receipt Builder for admin/owner receipt field visibility, text size, bold text, divider lines, logo size, footer text, and live preview
 - Floating Save Settings now sits on the right without a white panel behind it
 - Database Mode in Settings is collapsible and starts collapsed
 - Save Settings now floats outside all Settings sections in the lower-right corner

@@ -130,6 +130,7 @@
       <p>If receipt printing is toggled off, no printing will be available from the Complete Sale window. Receipts can still be sent by WhatsApp.</p>
       <p>Support for other messaging apps will be added upon customer request.</p>
       <p>This section also controls paper size, silent printing, and what the Enter key does on the Complete Sale window.</p>
+      <p>Receipt Builder lets an admin or owner choose which receipt sections appear, set text size, toggle bold text and divider lines where available, write a custom footer message, and collapse the builder when it is not needed. The live preview shows how printed and shared receipts will look.</p>
     </section>
 
     <section class="settings-section help-section">

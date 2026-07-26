@@ -37,6 +37,16 @@
                 <input id="businessAddressInput" type="text" placeholder="123 Beauty Ave">
               </label>
             </div>
+            <div class="business-layout-item" data-business-layout-item="additionalAddress" data-business-layout-title="Additional address">
+              <label class="checkbox-row">
+                <input id="businessAdditionalAddressEnabled" type="checkbox">
+                Enable additional address information
+              </label>
+              <label>
+                Additional address information
+                <input id="businessAdditionalAddressInput" type="text" placeholder="Suite, landmark, directions, or extra address line">
+              </label>
+            </div>
             <div class="business-layout-item" data-business-layout-item="logo" data-business-layout-title="Business logo">
               <div class="logo-picker-group">
                 <span>Business logo</span>
@@ -198,6 +208,45 @@
           </label>
           <button class="secondary-button printer-refresh-button" id="refreshPrinters" type="button">Refresh Printers</button>
           <p class="settings-note printer-status-message" id="printerStatus"></p>
+          <div class="settings-actions printer-settings-actions">
+            <button class="checkout-button" id="savePrinterSettings" type="button">Save Printer Settings</button>
+          </div>
+          <p class="settings-note printer-save-status" id="printerSaveStatus" role="status"></p>
+
+          <div class="receipt-builder">
+            <div class="section-title-row">
+              <h3 class="settings-subsection-title no-border">Receipt Builder</h3>
+              <div class="section-title-actions compact-title-actions">
+                <button class="secondary-button" id="toggleReceiptBuilder" type="button" aria-expanded="false" aria-controls="receiptBuilderBody">Expand</button>
+              </div>
+            </div>
+            <div class="receipt-builder-body is-hidden" id="receiptBuilderBody">
+              <div class="section-title-row receipt-builder-inner-actions">
+                <span></span>
+                <button class="secondary-button" id="resetReceiptTemplate" type="button">Reset Receipt</button>
+              </div>
+              <div class="receipt-builder-layout">
+                <div>
+                  <p class="settings-note">Toggle fields off when they should not appear on printed/shared receipts.</p>
+                  <div class="receipt-template-list" id="receiptTemplateList"></div>
+                  <div class="receipt-builder-options receipt-footer-message-row">
+                    <label>
+                      Footer message
+                      <textarea id="receiptFooterText" rows="3" placeholder="Thank you for shopping with us."></textarea>
+                    </label>
+                  </div>
+                </div>
+                <aside class="receipt-template-preview">
+                  <strong>Live Receipt Preview</strong>
+                  <div id="receiptTemplatePreview"></div>
+                </aside>
+              </div>
+              <div class="settings-actions receipt-settings-actions">
+                <button class="checkout-button" id="saveReceiptSettings" type="button">Save Receipt Layout</button>
+              </div>
+              <p class="settings-note printer-save-status" id="receiptSaveStatus" role="status"></p>
+            </div>
+          </div>
         </section>
 
         <!-- Database Mode section: Host/Client database configuration, locked until Ctrl+1. -->
@@ -224,15 +273,20 @@
               Database path
               <input id="databasePath" type="text" readonly>
             </label>
+            <label class="checkbox-row">
+              <input id="backupOnStartupEnabled" type="checkbox">
+              Backup database on startup
+            </label>
             <div class="settings-actions database-actions">
               <button class="secondary-button" id="browseDatabasePath" type="button">Browse</button>
               <button class="checkout-button" id="applyDatabaseMode" type="button">Apply Database Mode</button>
+              <button class="secondary-button" id="openBackupLocation" type="button">Open Backup Location</button>
             </div>
             <p class="settings-note" id="databaseStatus" role="status"></p>
           </div>
         </section>
 
-        <div class="settings-actions settings-floating-actions">
+        <div class="settings-actions settings-save-actions">
           <button class="checkout-button" type="submit">Save Settings</button>
         </div>
         <p class="settings-note" id="saveStatus" role="status"></p>
